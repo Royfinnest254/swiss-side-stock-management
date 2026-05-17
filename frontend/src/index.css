@@ -59,3 +59,11 @@
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
+
+.table-scroll {
+  @apply w-full overflow-x-auto;
+}
+
+button, a, input, [role="button"], select {
+  min-height: 48px;
+}

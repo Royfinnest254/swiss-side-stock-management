@@ -1,31 +1,94 @@
-# Dependency directories
+# Dependency Directories
 node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build Outputs
 dist/
 build/
+out/
+frontend/dist/
+frontend/build/
 
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Environment variables (CRITICAL: DO NOT REMOVE)
+# Environment Variables and Credentials
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+backend/.env
+frontend/.env
+frontend/.env.production
 
-# Build outputs
-dist/
-tmp/
+# Database Backups and SQL Dumps
+*.sql
+backend/*.sql
+V14_PRODUCTION_DATABASE.sql
+SWISS_SIDE_FULL_DATABASE_V16.sql
 
-# Logs
+# Backup Archives
+*.zip
+*.tar.gz
+*.tgz
+SwissSide_*.zip
+SWISS_SIDE_*.zip
+
+# Log Files and Crash Dumps
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-logs/
+pnpm-debug.log*
+build_error.txt
+build_log.txt
+build_log_*.txt
+frontend/build_error.txt
+frontend/build_log.txt
+frontend/build_log_*.txt
 
-# System files
+# Temporary Directories and Artifacts
+FinalZIP/
+NAMECHEAP_PRODUCTION_V13/
+STAGING_V17/
+STAGING_V17_FIXED/
+SwissSide_Production_*/
+SwissSide_Full_*/
+production_temp*/
+codebase_temp*/
+deploy_final/
+deploy_v14/
+temp_deploy/
+temp_patch/
+temp_zip_check*/
+swiss_side_V13_NAMECHEAP_DEPLOY/
+
+# Scratch Scripts and Testing Files
+scratch/
+backend/scratch/
+frontend/scratch/
+extract_src.js
+recover.js
+restore_all.js
+test-smtp.js
+test_restore.js
+frontend/stress-test.js
+frontend/convex/testing.ts
+YESTERDAY_CONVERSATION.md
+RESTORED_TRANSCRIPT.md
+
+# Operating System Files
 .DS_Store
 Thumbs.db
+
+# IDE and Editor Settings
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.cursor/
+.agents/
+.gemini/
+.temp/

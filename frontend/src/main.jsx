@@ -1,27 +1,31 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import { ConvexProvider, ConvexReactClient } from "convex/react"
-import './index.css'
-import App from './App'
-import ErrorBoundary from './components/ErrorBoundary'
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import App from './App';
+import './index.css';
 
-// Production Pre-flight Check
-const CONVEX_URL = import.meta.env.VITE_CONVEX_URL;
-if (!CONVEX_URL && import.meta.env.PROD) {
-  console.error("❌ CRITICAL: VITE_CONVEX_URL is missing in production environment!");
-}
-
-const convex = new ConvexReactClient(CONVEX_URL || "http://localhost:3210");
-
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <ConvexProvider client={convex}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </ConvexProvider>
-    </ErrorBoundary>
-  </StrictMode>,
-)
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#fff',
+            color: '#0f172a',
+            borderRadius: '16px',
+            fontSize: '12px',
+            fontWeight: '900',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em',
+            boxShadow: '0 10px 30px -5px rgba(163, 94, 69, 0.1)',
+            border: '1px solid #f1f5f9'
+          },
+        }}
+      />
+    </BrowserRouter>
+  </React.StrictMode>
+);

@@ -19,6 +19,7 @@ import type * as resend from "../resend.js";
 import type * as roomItems from "../roomItems.js";
 import type * as roomTemplates from "../roomTemplates.js";
 import type * as rooms from "../rooms.js";
+import type * as testing from "../testing.js";
 import type * as transactions from "../transactions.js";
 import type * as users from "../users.js";
 
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   roomItems: typeof roomItems;
   roomTemplates: typeof roomTemplates;
   rooms: typeof rooms;
+  testing: typeof testing;
   transactions: typeof transactions;
   users: typeof users;
 }>;

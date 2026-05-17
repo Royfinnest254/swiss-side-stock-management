@@ -1,271 +1,659 @@
-import { useState, useMemo } from 'react';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { 
-  FileText, 
-  Download, 
-  ChefHat, 
-  Dumbbell, 
-  Bed, 
-  Package,
-  ShieldCheck,
-  ChevronRight,
-  Info,
-  AlertCircle
-} from 'lucide-react';
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { toast } from 'react-hot-toast';
+import { useState, useEffect } from 'react';
+import api from '../lib/api';
+import toast from 'react-hot-toast';
+import Modal from '../components/Modal';
+import { BarChart3, Mail, Calendar, Filter, ArrowUpRight, ArrowDownLeft, TrendingUp, Package, ShoppingCart, Loader2, Clock, CheckCircle, RefreshCw, ShoppingBag, List, CheckSquare, DollarSign, Download } from 'lucide-react';
+
+const ReportStat = ({ label, value, icon: Icon, color, loading }) => (
+  <div className="bg-white border border-[#F3F4F6] rounded-[24px] p-8 shadow-sm group hover:shadow-md transition-all">
+    <div className="flex justify-between items-start mb-4">
+      <div className="w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110" style={{ backgroundColor: `${color}15`, color }}>
+        <Icon size={24} />
+      </div>
+      <div className="text-[10px] font-black uppercase tracking-[0.3em] text-[#9CA3AF] mt-1">{label}</div>
+    </div>
+    {loading ? (
+      <div className="h-9 w-24 bg-gray-200 animate-pulse rounded-lg" />
+    ) : (
+      <div className="text-3xl font-black text-[#1A1A1A] tracking-tighter">{value}</div>
+    )}
+    <div className="mt-4 h-1 w-full bg-[#F9FAFB] rounded-full overflow-hidden">
+      <div className="h-full bg-current opacity-20 w-3/4" style={{ color }} />
+    </div>
+  </div>
+);
 
 export default function Reports() {
-  const [reportStatus, setReportStatus] = useState('idle');
+  const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'procurement'
   
-  const sessionToken = localStorage.getItem('swiss_side_session') || '';
-  
-  // Data Aggregation
-  const kitchenItems = useQuery(api.items.getAll, { token: sessionToken });
-  const gymItems = useQuery(api.gymItems.getAll, { token: sessionToken });
-  const rooms = useQuery(api.rooms.getAll, { token: sessionToken });
-  const roomItems = useQuery(api.roomItems.getAll, { token: sessionToken });
-  const generalSupplies = useQuery(api.generalSupplies.getAll, { token: sessionToken });
-  const kitchenHistory = useQuery(api.transactions.getHistory, { token: sessionToken });
-  const procurementNeeds = useQuery(api.needs.getAll, { token: sessionToken });
+  // Analytics State
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [dateRange, setDateRange] = useState('7d');
 
-  const stats = useMemo(() => {
-    if (!kitchenItems || !gymItems || !rooms || !roomItems || !generalSupplies || !procurementNeeds) return null;
-    return { kitchenItems, gymItems, rooms, roomItems, generalSupplies, kitchenHistory, procurementNeeds };
-  }, [kitchenItems, gymItems, rooms, roomItems, generalSupplies, kitchenHistory, procurementNeeds]);
+  // Procurement Shopping Lists State
+  const [lists, setLists] = useState([]);
+  const [selectedListId, setSelectedListId] = useState('');
+  const [listItems, setListItems] = useState([]);
+  const [listsLoading, setListsLoading] = useState(false);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [actualPrice, setActualPrice] = useState('0');
+  const [purchaseNotes, setPurchaseNotes] = useState('');
+  const [submittingPurchase, setSubmittingPurchase] = useState(false);
 
-  const generatePDF = async (type = 'master') => {
-    if (!stats) return toast.error("Intelligence data not yet synchronized.");
-    setReportStatus('generating');
+  // Email delivery states
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [targetEmail, setTargetEmail] = useState('');
+  const [reportPeriod, setReportPeriod] = useState('7d');
+  const [reportFormat, setReportFormat] = useState('summary');
+  const [submitting, setSubmitting] = useState(false);
 
+  const handleDownloadStatement = async () => {
+    const toastId = toast.loading('Compiling operations statement PDF...');
     try {
-      const doc = new jsPDF();
-      const timestamp = new Date().toLocaleString();
-      const dateStr = new Date().toISOString().split('T')[0];
-
-      // Load Logo
-      let logoDataUrl = null;
-      try {
-        const response = await fetch('/logo.png');
-        const blob = await response.blob();
-        logoDataUrl = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-      } catch (e) {
-        console.warn("Could not load logo for PDF");
-      }
-
-      // Premium Header
-      doc.setFillColor(163, 94, 69); // Terracotta
-      doc.rect(0, 0, 210, 45, 'F');
-      
-      if (logoDataUrl) {
-        // Place logo on the left
-        doc.addImage(logoDataUrl, 'PNG', 15, 7, 30, 30);
-      }
-
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(28);
-      // Shift text slightly to the right to accommodate logo
-      doc.text("SWISS SIDE ITEN", 115, 25, { align: 'center' });
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text("PREMIUM LODGE & ATHLETE PERFORMANCE CENTER • ITEN, KENYA", 115, 33, { align: 'center' });
-
-      // Sub-Header
-      doc.setTextColor(0, 0, 0);
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      const titles = {
-        master: "EXECUTIVE DAILY SUMMARY",
-        rooms: "ROOM STATUS & INVENTORY REPORT",
-        gym: "GYM EQUIPMENT & MAINTENANCE REPORT",
-        kitchen: "KITCHEN STOCK & USAGE REPORT",
-        issues: "OPEN ISSUES & NEEDS AUDIT"
-      };
-      doc.text(titles[type] || "OPERATIONAL REPORT", 15, 60);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(120, 120, 120);
-      doc.text(`REFERENCE: SS-REPORT-${dateStr}-${Math.random().toString(36).substring(7).toUpperCase()}`, 15, 66);
-      doc.text(`GENERATED ON: ${timestamp}`, 15, 71);
-
-      let currentY = 80;
-
-      // Section: Kitchen Stock
-      if (type === 'master' || type === 'kitchen') {
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(163, 94, 69);
-        doc.text("KITCHEN STOCK LEVELS", 15, currentY);
-        autoTable(doc, {
-          startY: currentY + 5,
-          head: [['Item Name', 'Current Qty', 'Unit', 'Status']],
-          body: stats.kitchenItems.map(i => [i.name, i.quantity, i.unit, i.quantity <= i.reorderLevel ? 'LOW' : 'OPTIMAL']),
-          headStyles: { fillColor: [163, 94, 69] },
-          margin: { left: 15, right: 15 }
-        });
-        currentY = doc.lastAutoTable.finalY + 20;
-      }
-
-      // Section: Gym Equipment
-      if (type === 'master' || type === 'gym') {
-        if (currentY > 240) { doc.addPage(); currentY = 20; }
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(45, 52, 54);
-        doc.text("GYM ASSET STATUS", 15, currentY);
-        autoTable(doc, {
-          startY: currentY + 5,
-          head: [['Asset', 'Qty', 'Condition', 'Last Inspected']],
-          body: stats.gymItems.map(i => [i.name, i.quantity, i.condition, i.lastChecked || 'N/A']),
-          headStyles: { fillColor: [45, 52, 54] },
-          margin: { left: 15, right: 15 }
-        });
-        currentY = doc.lastAutoTable.finalY + 20;
-      }
-
-      // Section: Room Status
-      if (type === 'master' || type === 'rooms') {
-        if (currentY > 240) { doc.addPage(); currentY = 20; }
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(197, 160, 89);
-        doc.text("ROOM OCCUPANCY & ASSETS", 15, currentY);
-        autoTable(doc, {
-          startY: currentY + 5,
-          head: [['Room', 'Type', 'Status', 'Assets Count']],
-          body: stats.rooms.map(r => [
-            r.name, 
-            r.type, 
-            r.status, 
-            stats.roomItems.filter(ri => ri.roomId === r._id).length
-          ]),
-          headStyles: { fillColor: [197, 160, 89] },
-          margin: { left: 15, right: 15 }
-        });
-        currentY = doc.lastAutoTable.finalY + 20;
-      }
-
-      // Section: Issues & Needs
-      if (type === 'master' || type === 'issues') {
-        if (currentY > 240) { doc.addPage(); currentY = 20; }
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(239, 68, 68);
-        doc.text("CRITICAL ISSUES & PROCUREMENT NEEDS", 15, currentY);
-        
-        const issues = [
-          ...stats.kitchenItems.filter(i => i.quantity <= i.reorderLevel).map(i => ['Kitchen', i.name, 'Low Stock', 'Restock']),
-          ...stats.gymItems.filter(i => i.condition === 'Maintenance' || i.condition === 'Broken').map(i => ['Gym', i.name, i.condition, 'Repair']),
-          ...stats.rooms.filter(r => r.status === 'Maintenance').map(r => ['Room', r.name, 'Maintenance', 'Fix']),
-          ...stats.procurementNeeds.map(n => [n.department, n.item, `Need: ${n.quantity || '1'}`, n.priority]),
-          ...stats.generalSupplies.filter(s => s.quantity <= s.reorderLevel).map(s => ['Supplies', s.name, 'Low Stock', 'Restock'])
-        ];
-
-        autoTable(doc, {
-          startY: currentY + 5,
-          head: [['Department', 'Item / Location', 'Status / Requirement', 'Priority']],
-          body: issues,
-          headStyles: { fillColor: [239, 68, 68] },
-          margin: { left: 15, right: 15 }
-        });
-      }
-
-      // Footer
-      const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setTextColor(150, 150, 150);
-        doc.text("CONFIDENTIAL • SWISS SIDE ITEN • PROPERTY OF MANAGEMENT", 105, 285, { align: 'center' });
-      }
-
-      doc.save(`Swiss_Side_Report_${type}_${dateStr}.pdf`);
-      setReportStatus('idle');
-      toast.success("Intelligence Report Exported Successfully");
+      const response = await api.get('/reports/statement-download', { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'Swiss_Side_Operations_Statement.pdf');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Operations statement PDF downloaded successfully!', { id: toastId });
     } catch (err) {
       console.error(err);
-      toast.error("Failed to compile report.");
-      setReportStatus('idle');
+      toast.error('Failed to compile and download operations statement.', { id: toastId });
     }
   };
 
-  const reportCards = [
-    { id: 'master', title: 'Daily Summary', icon: FileText, desc: 'Full operational snapshot for today.', color: 'border-l-slate-900 bg-slate-50' },
-    { id: 'rooms', title: 'Room Status', icon: Bed, desc: 'Occupancy and inventory per room.', color: 'border-l-accent-gold bg-accent-gold/5' },
-    { id: 'gym', title: 'Gym Equipment', icon: Dumbbell, desc: 'Asset condition and maintenance cycles.', color: 'border-l-slate-700 bg-slate-50' },
-    { id: 'kitchen', title: 'Kitchen Stock', icon: ChefHat, desc: 'Consumables and usage trends.', color: 'border-l-primary bg-primary/5' },
-    { id: 'issues', title: 'Issues & Needs', icon: AlertCircle, desc: 'Critical alerts and missing inventory.', color: 'border-l-danger bg-danger/5' },
+  useEffect(() => {
+    fetchData();
+  }, [dateRange]);
+
+  useEffect(() => {
+    if (activeTab === 'procurement') {
+      fetchShoppingLists();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (selectedListId) {
+      fetchListItems(selectedListId);
+    } else {
+      setListItems([]);
+    }
+  }, [selectedListId]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const [summaryRes, transRes, analyticsRes] = await Promise.all([
+        api.get('/reports/summary'),
+        api.get('/kitchen/transactions'),
+        api.get('/reports/analytics')
+      ]);
+      setStats(summaryRes);
+      setTransactions(transRes.results || transRes);
+      setAnalytics(analyticsRes);
+    } catch (err) {
+      console.error('[Fetch Analytics Error]', err);
+      setError(true);
+      toast.error('Operational metrics synchronization failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchShoppingLists = async () => {
+    setListsLoading(true);
+    try {
+      const data = await api.get('/reports/shopping-lists');
+      const loaded = Array.isArray(data) ? data : data.results || [];
+      setLists(loaded);
+      if (loaded.length > 0 && !selectedListId) {
+        setSelectedListId(loaded[0].id.toString());
+      }
+    } catch (err) {
+      toast.error('Failed to load shopping lists');
+    } finally {
+      setListsLoading(false);
+    }
+  };
+
+  const fetchListItems = async (listId) => {
+    setItemsLoading(true);
+    try {
+      const data = await api.get(`/reports/shopping-lists/${listId}`);
+      setListItems(data.items || []);
+    } catch (err) {
+      toast.error('Failed to load list details');
+    } finally {
+      setItemsLoading(false);
+    }
+  };
+
+  const handleEmailReport = async (e) => {
+    e.preventDefault();
+    if (!targetEmail) return toast.error('Destination email address required');
+    setSubmitting(true);
+    try {
+      await api.post('/reports/email', { email: targetEmail, period: reportPeriod, format: reportFormat });
+      toast.success('Report dispatched to ' + targetEmail);
+      setEmailModalOpen(false);
+      setTargetEmail('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to dispatch email reports');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const triggerPurchaseModal = (item) => {
+    setSelectedItem(item);
+    setActualPrice(item.price_per_unit ? item.price_per_unit.toString() : '0');
+    setPurchaseNotes('');
+    setPurchaseModalOpen(true);
+  };
+
+  const handleConfirmPurchase = async (e) => {
+    e.preventDefault();
+    if (!selectedItem || !selectedListId) return;
+
+    setSubmittingPurchase(true);
+    try {
+      const priceToSubmit = actualPrice.trim() === '' ? 0 : parseFloat(actualPrice);
+      await api.patch(`/reports/shopping-lists/${selectedListId}/items/${selectedItem.id}/purchase`, {
+        actual_price_paid: priceToSubmit,
+        notes: purchaseNotes
+      });
+      toast.success(`${selectedItem.name} successfully purchased and restocked!`);
+      setPurchaseModalOpen(false);
+      // Refresh
+      fetchListItems(selectedListId);
+      fetchData(); // Sync metrics back
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to log item purchase');
+    } finally {
+      setSubmittingPurchase(false);
+    }
+  };
+
+  // Procurement Completion Stats
+  const totalItemsCount = listItems.length;
+  const purchasedItemsCount = listItems.filter(i => i.purchased === 1).length;
+  const completionPercentage = totalItemsCount > 0 ? Math.round((purchasedItemsCount / totalItemsCount) * 100) : 0;
+
+  // Visual Dynamic Colored Tracking Bar Gradient based on progress
+  const trackingBarColor = completionPercentage === 100 
+    ? 'from-[#639922] to-[#10B981]' 
+    : completionPercentage > 50 
+    ? 'from-[#BA7517] to-[#639922]' 
+    : 'from-[#A0604E] to-[#BA7517]';
+
+  const distributionTotal = analytics?.moduleDistribution?.reduce((acc, d) => acc + d.count, 0) || 0;
+  const computedDistribution = (analytics?.moduleDistribution && analytics.moduleDistribution.length > 0) ? analytics.moduleDistribution.map(d => ({
+    name: d.module,
+    value: distributionTotal > 0 ? Math.round((d.count / distributionTotal) * 100) : 0,
+    color: d.module === 'Kitchen' ? '#A0604E' : d.module === 'Spa' ? '#BA7517' : d.module === 'Gym' ? '#639922' : d.module === 'Laundry' ? '#E24B4A' : d.module === 'Supplies' ? '#2563EB' : '#10B981'
+  })) : [
+    { name: 'Kitchen', value: 45, color: '#A0604E' },
+    { name: 'Spa', value: 25, color: '#BA7517' },
+    { name: 'Gym', value: 15, color: '#639922' },
+    { name: 'Laundry', value: 15, color: '#E24B4A' }
   ];
 
   return (
-    <div className="space-y-12 max-w-[1400px] mx-auto animate-in fade-in duration-700">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <div className="space-y-10 animate-in fade-in duration-500">
+      {/* Title block */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#F3F4F6]">
         <div>
-          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2 uppercase">Intelligence Reports</h1>
-          <p className="text-slate-500 font-medium max-w-2xl">
-            Generate and export high-fidelity operational statements for stakeholders. 
-            All reports are derived from live departmental audits.
-          </p>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-2">Operational Analytics</span>
+          <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">Operational Intelligence</h1>
         </div>
+        <div className="flex flex-wrap gap-3">
+          <button 
+            onClick={() => setEmailModalOpen(true)}
+            className="h-12 px-6 bg-[#1A1A1A] text-white rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all shadow-premium"
+          >
+            <Mail size={16} /> Email Report
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-[#F3F4F6] pb-px gap-8">
         <button 
-          onClick={() => generatePDF('master')}
-          disabled={reportStatus === 'generating'}
-          className="btn-primary py-4 px-8 rounded-2xl flex items-center gap-3 shadow-premium hover:scale-[1.02] transition-all"
+          onClick={() => setActiveTab('analytics')}
+          className={`pb-4 text-[12px] font-black uppercase tracking-widest transition-all relative ${
+            activeTab === 'analytics' ? 'text-[#A0604E]' : 'text-slate-400 hover:text-slate-600'
+          }`}
         >
-          {reportStatus === 'generating' ? 'Compiling Master...' : <><ShieldCheck size={20} /> Master Executive Export</>}
+          Overview Intelligence
+          {activeTab === 'analytics' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#A0604E] rounded-full" />
+          )}
+        </button>
+        <button 
+          onClick={() => setActiveTab('procurement')}
+          className={`pb-4 text-[12px] font-black uppercase tracking-widest transition-all relative flex items-center gap-2 ${
+            activeTab === 'procurement' ? 'text-[#A0604E]' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          Procurement Requisition Checklist
+          {activeTab === 'procurement' && (
+            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#A0604E] rounded-full" />
+          )}
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {reportCards.map((card) => (
-          <div key={card.id} className={`system-card p-10 border-l-8 ${card.color} group hover:shadow-elevated transition-all duration-500`}>
-            <div className="flex flex-col h-full">
-              <div className="p-4 bg-white/50 rounded-2xl w-fit mb-6 shadow-sm border border-white">
-                <card.icon size={32} className="text-slate-700" />
-              </div>
-              <h3 className="text-xl font-extrabold text-slate-900 mb-2 uppercase tracking-tight">{card.title}</h3>
-              <p className="text-slate-500 text-sm mb-8 flex-1">{card.desc}</p>
+      {activeTab === 'analytics' && (
+        <div className="space-y-12 animate-in fade-in duration-300">
+          {error ? (
+            <div className="bg-red-50 border border-red-200 rounded-[24px] p-8 text-center max-w-lg mx-auto">
+              <Package className="mx-auto text-red-400 mb-4 animate-bounce" size={40} />
+              <h3 className="font-bold text-red-800 uppercase tracking-tight text-sm">Synchronization Interrupted</h3>
+              <p className="text-red-600 text-xs mt-1">We were unable to aggregate operational metrics from the active department ledgers.</p>
               <button 
-                onClick={() => generatePDF(card.id)}
-                className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-primary transition-colors group"
+                onClick={fetchData} 
+                className="mt-6 h-10 px-5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-black uppercase tracking-widest flex items-center gap-2 mx-auto transition-all"
               >
-                Compile Report <ChevronRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                <RefreshCw size={14} /> Retry Synchronization
               </button>
             </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="system-card p-12 bg-slate-900 text-white relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
-          <FileText size={160} />
-        </div>
-        <div className="relative z-10 max-w-2xl">
-          <div className="flex items-center gap-2 text-primary font-black text-[10px] uppercase tracking-[0.3em] mb-4">
-            <Info size={14} /> Compliance & Auditing
-          </div>
-          <h2 className="text-3xl font-extrabold mb-4 uppercase">Automated Asset Intelligence</h2>
-          <p className="text-slate-400 font-medium leading-relaxed mb-8">
-            Swiss Side management reports are cryptographically signed with unique reference IDs. 
-            The system cross-references kitchen consumption with room occupancy to provide 
-            predictive stock requirements and maintenance forecasts.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {['Branded PDF Generation', 'Multi-Department Sync', 'Real-time Stock Snapshot', 'Maintenance Log Inclusion'].map((feature, i) => (
-              <div key={i} className="flex items-center gap-3 text-sm font-bold">
-                <ShieldCheck size={18} className="text-primary" /> {feature}
+          ) : (
+            <>
+              {/* Analytics Metric Cards Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <ReportStat 
+                  label="Stock Turnover" 
+                  value={(analytics?.stockTurnover ?? 0).toLocaleString()} 
+                  icon={TrendingUp} 
+                  color="#A0604E" 
+                  loading={loading}
+                />
+                <ReportStat 
+                  label="Supply Gap" 
+                  value={analytics?.itemsBelowThreshold ?? 0} 
+                  icon={Package} 
+                  color="#E24B4A" 
+                  loading={loading}
+                />
+                <ReportStat 
+                  label="Fulfilled Requests" 
+                  value={analytics?.fulfilledRequests ?? 0} 
+                  icon={ShoppingCart} 
+                  color="#639922" 
+                  loading={loading}
+                />
+                <ReportStat 
+                  label="Movement Rate" 
+                  value={`${analytics?.movementRate ?? 0}%`} 
+                  icon={BarChart3} 
+                  color="#BA7517" 
+                  loading={loading}
+                />
               </div>
-            ))}
-          </div>
+
+              {/* Transaction history and charts side-by-side */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#9CA3AF]">Movement Ledger Records</h2>
+                    <Clock size={16} className="text-[#9CA3AF]" />
+                  </div>
+                  <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-0 overflow-hidden shadow-sm">
+                    {loading ? (
+                      <div className="p-12 text-center space-y-3">
+                        <Loader2 className="animate-spin text-[#A0604E] mx-auto" size={24} />
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Compiling active records...</span>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50 border-b border-[#F3F4F6]">
+                              <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Timestamp</th>
+                              <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Item</th>
+                              <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Action</th>
+                              <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Qty</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {transactions.slice(0, 10).map(t => (
+                              <tr key={t.id} className="hover:bg-[#F9FAFB] border-b border-[#F3F4F6] transition-colors">
+                                <td className="p-5"><span className="text-[12px] font-bold text-[#6B7280]">{new Date(t.transaction_date || t.created_at).toLocaleDateString()}</span></td>
+                                <td className="p-5"><span className="font-bold text-[#1A1A1A] uppercase tracking-tight">{t.item_name}</span></td>
+                                <td className="p-5">
+                                  <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
+                                    (t.action || t.type) === 'restock' ? 'bg-[#EAF3DE] text-[#3B6D11]' : 'bg-[#FCEBEB] text-[#A32D2D]'
+                                  }`}>
+                                    {t.action || t.type}
+                                  </span>
+                                </td>
+                                <td className="p-5"><span className="font-black text-[#1A1A1A] tracking-tighter">{t.quantity}</span></td>
+                              </tr>
+                            ))}
+                            {transactions.length === 0 && (
+                              <tr>
+                                <td colSpan={4} className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">No transaction history logged for this period.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <h2 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#9CA3AF]">Module Distribution</h2>
+                  <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-8 shadow-sm">
+                    {loading ? (
+                      <div className="h-64 flex items-center justify-center">
+                        <Loader2 className="animate-spin text-[#A0604E]" size={24} />
+                      </div>
+                    ) : (
+                      <div className="space-y-8">
+                        {computedDistribution.map(module => (
+                          <div key={module.name} className="space-y-3">
+                            <div className="flex justify-between items-center text-[11px] font-black uppercase tracking-widest">
+                              <span className="text-[#1A1A1A]">{module.name}</span>
+                              <span className="text-[#9CA3AF]">{module.value}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-[#F9FAFB] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${module.value}%`, backgroundColor: module.color }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      )}
+
+      {activeTab === 'procurement' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-1 max-w-md">
+              <h2 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Active Procurement Shopping Lists</h2>
+              <p className="text-xs text-slate-500 leading-relaxed uppercase tracking-wider">Select a pre-compiled procurement list to process purchases, check items, and auto-restock target departments.</p>
+            </div>
+            
+            <div className="w-full md:w-80">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] block mb-2">Procurement Checklist Directory</label>
+              {listsLoading ? (
+                <div className="h-12 bg-gray-100 rounded-xl flex items-center px-4">
+                  <Loader2 className="animate-spin text-[#A0604E] mr-2" size={14} />
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading checklists...</span>
+                </div>
+              ) : (
+                <select 
+                  className="w-full bg-white border border-[#F3F4F6] rounded-xl px-4 h-12 text-[12px] font-bold uppercase tracking-wider outline-none focus:ring-2 focus:ring-[#A0604E]/20"
+                  value={selectedListId}
+                  onChange={(e) => setSelectedListId(e.target.value)}
+                >
+                  <option value="">-- Choose Shopping List --</option>
+                  {lists.map(list => (
+                    <option key={list.id} value={list.id}>{list.name} ({list.status})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {selectedListId ? (
+            <div className="space-y-8">
+              {/* Checklist Progress Tracking panel */}
+              <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-8 shadow-sm">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#A0604E]">Procurement Status Tracker</span>
+                    <h3 className="text-2xl font-black text-[#1A1A1A] tracking-tight uppercase mt-1">Checklist Progress Indicators</h3>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Progress Quotient</span>
+                    <div className="text-2xl font-black text-[#1A1A1A] tracking-tighter mt-1">
+                      {purchasedItemsCount} of {totalItemsCount} items purchased ({completionPercentage}%)
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic colored tracking bar */}
+                <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner p-0.5">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-700 bg-gradient-to-r ${trackingBarColor}`}
+                    style={{ width: `${completionPercentage}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Items checklist block */}
+              <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-0 overflow-hidden shadow-sm">
+                <div className="p-6 border-b border-[#F3F4F6] bg-gray-50 flex justify-between items-center">
+                  <span className="text-[11px] font-black uppercase tracking-widest text-[#1A1A1A]">Active Procurement Line Items</span>
+                  <List size={16} className="text-slate-400" />
+                </div>
+
+                {itemsLoading ? (
+                  <div className="p-20 text-center space-y-3">
+                    <Loader2 className="animate-spin text-[#A0604E] mx-auto" size={32} />
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Querying procurement ledger lines...</span>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#F3F4F6]">
+                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">State</th>
+                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Line Item Name</th>
+                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Department</th>
+                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Qty / Unit</th>
+                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Budget Unit Price</th>
+                          <th className="p-5 text-right text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {listItems.map(item => (
+                          <tr key={item.id} className={`border-b border-[#F3F4F6] hover:bg-gray-50 transition-colors ${
+                            item.purchased === 1 ? 'opacity-60 bg-gray-50/50' : ''
+                          }`}>
+                            <td className="p-5">
+                              {item.purchased === 1 ? (
+                                <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+                                  <CheckSquare size={14} />
+                                </div>
+                              ) : (
+                                <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                                  <Clock size={12} />
+                                </div>
+                              )}
+                            </td>
+                            <td className="p-5">
+                              <span className={`font-bold uppercase tracking-tight text-[#1A1A1A] ${
+                                item.purchased === 1 ? 'line-through text-slate-400' : ''
+                              }`}>{item.name}</span>
+                              {item.notes && <span className="block text-[10px] text-slate-400 mt-0.5 italic">{item.notes}</span>}
+                            </td>
+                            <td className="p-5"><span className="text-[11px] font-black uppercase tracking-wider text-[#A0604E]">{item.department || 'General'}</span></td>
+                            <td className="p-5"><span className="font-black text-[#1A1A1A]">{item.suggested_quantity || 1} {item.unit || 'pcs'}</span></td>
+                            <td className="p-5"><span className="font-bold text-[#6B7280]">KES {parseFloat(item.price_per_unit || 0).toLocaleString()}</span></td>
+                            <td className="p-5 text-right">
+                              {item.purchased === 1 ? (
+                                <span className="text-[9px] font-black uppercase tracking-[0.15em] bg-[#EAF3DE] text-[#3B6D11] px-3 py-1.5 rounded-lg inline-flex items-center gap-1">
+                                  <CheckCircle size={10} /> Restocked
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => triggerPurchaseModal(item)}
+                                  className="h-9 px-4 bg-green-50 hover:bg-green-600 hover:text-white text-green-700 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-1.5 ml-auto transition-all shadow-sm"
+                                >
+                                  <ShoppingBag size={12} /> ✓ Buy Item
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {listItems.length === 0 && (
+                          <tr>
+                            <td colSpan={6} className="p-16 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">This checklist currently contains no lines.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-20 text-center shadow-sm">
+              <CheckSquare className="mx-auto text-[#D1D5DB] mb-6 animate-pulse" size={48} />
+              <h3 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Activate Procurement Checklist</h3>
+              <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto uppercase tracking-wider text-[11px] leading-relaxed">Select any active list from the directory dropdown at the top to display and check off purchased supplies.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Confirmation Modal for Purchases */}
+      <Modal 
+        isOpen={purchaseModalOpen} 
+        onClose={() => setPurchaseModalOpen(false)} 
+        title="Confirm Procurement Purchase"
+      >
+        <form onSubmit={handleConfirmPurchase} className="space-y-6">
+          <div className="space-y-1 bg-[#F9FAFB] p-5 rounded-2xl border border-[#F3F4F6]">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#9CA3AF]">Line Item Selected</span>
+            <div className="font-bold text-[#1A1A1A] uppercase tracking-tight">{selectedItem?.name}</div>
+            <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider leading-relaxed">
+              Quantity to replenish: <span className="font-bold text-[#1A1A1A]">{selectedItem?.suggested_quantity || 1} {selectedItem?.unit || 'pcs'}</span> into the <span className="font-bold text-[#1A1A1A]">{selectedItem?.department}</span> inventory ledger.
+            </div>
+          </div>
+          
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Actual Price Paid per Unit (KES)</label>
+            <div className="relative">
+              <input 
+                type="number" 
+                step="0.01" 
+                className="input-field pl-12 font-black text-lg h-14" 
+                value={actualPrice} 
+                onChange={e => setActualPrice(e.target.value)} 
+                min="0" 
+                placeholder="0.00" 
+                autoFocus
+              />
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-sm">KES</span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-medium ml-1 uppercase tracking-wider">Defaults to checklist estimates. Enter 0 if items were donated or had no cost.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Procurement Log Notes / Receipt ID</label>
+            <input 
+              className="input-field h-12 text-xs" 
+              value={purchaseNotes} 
+              onChange={e => setPurchaseNotes(e.target.value)} 
+              placeholder="e.g. Purchased from local market, receipt #1209" 
+            />
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={submittingPurchase} 
+            className="btn-primary w-full h-14 uppercase tracking-widest font-black flex items-center justify-center gap-2"
+          >
+            {submittingPurchase ? <Loader2 className="animate-spin" size={18} /> : 'Complete Transaction & Restock'}
+          </button>
+        </form>
+      </Modal>
+
+      {/* Email Report Modal */}
+      <Modal isOpen={emailModalOpen} onClose={() => setEmailModalOpen(false)} title="Email Operational Report">
+        <form onSubmit={handleEmailReport} className="space-y-6">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Destination Email</label>
+            <input 
+              type="email" 
+              className="input-field" 
+              value={targetEmail} 
+              onChange={e => setTargetEmail(e.target.value)} 
+              required 
+              placeholder="e.g. executive@swiss-side.store" 
+              autoFocus 
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Time Period</label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: '24h', label: 'Last 24h' },
+                { value: '7d', label: 'Last 7 Days' },
+                { value: '30d', label: 'Last 30 Days' },
+                { value: '6m', label: 'Last 6 Months' },
+                { value: '12m', label: 'Last 12 Months' },
+                { value: 'all', label: 'All Time' }
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setReportPeriod(opt.value)}
+                  className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${reportPeriod === opt.value ? 'bg-[#A0604E] text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Report Format</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setReportFormat('summary')}
+                className={`h-20 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
+                  reportFormat === 'summary' ? 'border-[#A0604E] bg-[#FDF5F3]' : 'border-[#F3F4F6] bg-white hover:border-[#E5E7EB]'
+                }`}
+              >
+                <span className={`text-[11px] font-black uppercase tracking-widest ${reportFormat === 'summary' ? 'text-[#A0604E]' : 'text-[#1A1A1A]'}`}>Summary</span>
+                <span className="text-[10px] text-[#9CA3AF] font-medium">Key numbers only</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setReportFormat('detailed')}
+                className={`h-20 rounded-xl border-2 transition-all flex flex-col items-center justify-center gap-1 ${
+                  reportFormat === 'detailed' ? 'border-[#A0604E] bg-[#FDF5F3]' : 'border-[#F3F4F6] bg-white hover:border-[#E5E7EB]'
+                }`}
+              >
+                <span className={`text-[11px] font-black uppercase tracking-widest ${reportFormat === 'detailed' ? 'text-[#A0604E]' : 'text-[#1A1A1A]'}`}>Detailed</span>
+                <span className="text-[10px] text-[#9CA3AF] font-medium">Full itemised tables</span>
+              </button>
+            </div>
+            {reportFormat === 'detailed' && (
+              <p className="text-[10px] text-[#A0604E] font-black uppercase tracking-widest text-center mt-3 animate-pulse">
+                A PDF will be attached to the email.
+              </p>
+            )}
+          </div>
+
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black flex items-center justify-center gap-2">
+            {submitting ? <Loader2 className="animate-spin" size={18} /> : <><Mail size={16} /> Dispatch Report</>}
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }

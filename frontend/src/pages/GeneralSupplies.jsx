@@ -1,480 +1,293 @@
-import { useState } from 'react';
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { Pencil, Trash2, Plus, Search, MinusCircle, PlusCircle, X, Package, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import api from '../lib/api';
+import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
-import { toast } from 'react-hot-toast';
+import DeleteConfirmModal from '../components/DeleteConfirmModal';
+import { Package, Plus, Search, Loader2, ArrowUpRight, ArrowDownLeft, Trash2, Clock, History, CheckCircle2, AlertCircle, Edit2, Calendar } from 'lucide-react';
 
-const sessionToken = () => localStorage.getItem('swiss_side_session') || '';
-const currentUser = () => localStorage.getItem('swiss_side_display_name') || localStorage.getItem('swiss_side_user')?.split('@')[0] || '';
-
-// ── Inline action modal (Withdraw OR Restock) ────────────────────────────────
-function ActionModal({ item, mode, onClose }) {
-  const withdrawMutation = useMutation(api.transactions.withdraw);
-  const restockMutation  = useMutation(api.transactions.restock);
-
-  const [amount, setAmount]   = useState('');
-  const [reason, setReason]   = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const isWithdraw = mode === 'withdraw';
-  const max        = isWithdraw ? item.quantity : undefined;
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const qty = parseFloat(amount);
-    if (!qty || qty <= 0) return toast.error('Enter a valid amount.');
-    if (!reason.trim())  return toast.error('Enter a reason.');
-    if (isWithdraw && qty > item.quantity)
-      return toast.error(`Only ${item.quantity} ${item.unit} available.`);
-
-    setLoading(true);
-    try {
-      const fn = isWithdraw ? withdrawMutation : restockMutation;
-      await fn({
-        token:    sessionToken(),
-        itemId:   item._id,
-        quantity: qty,
-        notes:    reason.trim(),
-      });
-      toast.success(isWithdraw ? `−${qty} ${item.unit} withdrawn` : `+${qty} ${item.unit} restocked`);
-      onClose();
-    } catch (err) {
-      toast.error(err.message || 'Something went wrong.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" />
-      <div
-        className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${isWithdraw ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'}`}>
-              {isWithdraw ? <MinusCircle size={20} /> : <PlusCircle size={20} />}
-            </div>
-            <div>
-              <p className="font-black text-slate-900 text-base">{isWithdraw ? 'Withdraw Supply' : 'Restock'}</p>
-              <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest">{item.name}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition-all">
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="mb-6 p-3 bg-slate-50 rounded-2xl flex items-center justify-between">
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Stock</span>
-          <span className="font-black text-slate-900 font-mono">{item.quantity} {item.unit}</span>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              {isWithdraw ? 'Amount to withdraw' : 'Amount to add'} ({item.unit})
-            </label>
-            <input
-              type="number"
-              step="any"
-              min="0.1"
-              max={max}
-              className="input-field font-mono text-xl font-black text-primary"
-              placeholder="0"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              autoFocus
-            />
-            {isWithdraw && amount && parseFloat(amount) > 0 && (
-              <p className="text-[10px] text-slate-400 font-bold mt-1.5">
-                Remaining after: <span className="font-black text-slate-700">{Math.max(0, item.quantity - parseFloat(amount))} {item.unit}</span>
-              </p>
-            )}
-          </div>
-
-
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
-              Reason {isWithdraw ? '(required)' : '(e.g. supplier delivery)'}
-            </label>
-            <input
-              type="text"
-              className="input-field"
-              placeholder={isWithdraw ? 'e.g. Room 101 cleaning...' : 'e.g. Monthly delivery from supplier'}
-              value={reason}
-              onChange={e => setReason(e.target.value)}
-            />
-          </div>
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 h-12 rounded-xl">Cancel</button>
-            <button
-              type="submit"
-              disabled={loading}
-              className={`flex-1 h-12 rounded-xl font-black text-[11px] uppercase tracking-widest text-white transition-all disabled:opacity-60 ${
-                isWithdraw ? 'bg-danger hover:bg-danger/90' : 'bg-success hover:bg-success/90'
-              }`}
-            >
-              {loading ? 'Saving...' : isWithdraw ? 'Confirm Withdrawal' : 'Confirm Restock'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Delete confirmation modal (must type item name) ──────────────────────────
-function DeleteConfirmModal({ item, onClose, onConfirm }) {
-  const [typed, setTyped] = useState('');
-  const match = typed.trim().toLowerCase() === item.name.trim().toLowerCase();
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
-      <div
-        className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-3 mb-5">
-          <div className="p-2.5 rounded-xl bg-danger/10 text-danger">
-            <AlertTriangle size={20} />
-          </div>
-          <div>
-            <p className="font-black text-slate-900 text-base">Delete Supply Item</p>
-            <p className="text-[11px] text-slate-400 font-bold">This cannot be undone</p>
-          </div>
-          <button onClick={onClose} className="ml-auto p-2 rounded-xl hover:bg-slate-100 text-slate-400">
-            <X size={18} />
-          </button>
-        </div>
-
-        <p className="text-sm text-slate-600 mb-4">
-          To confirm, type <span className="font-black text-slate-900">{item.name}</span> below:
-        </p>
-        <input
-          type="text"
-          className="input-field mb-5"
-          placeholder={item.name}
-          value={typed}
-          onChange={e => setTyped(e.target.value)}
-          autoFocus
-        />
-        <div className="flex gap-3">
-          <button onClick={onClose} className="btn-secondary flex-1 h-12 rounded-xl">Cancel</button>
-          <button
-            onClick={onConfirm}
-            disabled={!match}
-            className="flex-1 h-12 rounded-xl font-black text-[11px] uppercase tracking-widest text-white bg-danger hover:bg-danger/90 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Delete Permanently
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Add / Edit item modal ────────────────────────────────────────────────────
-function ItemFormModal({ item, onClose }) {
-  const createItem = useMutation(api.generalSupplies.create);
-  const updateItem = useMutation(api.generalSupplies.update);
-  const [loading, setLoading] = useState(false);
-  
-  const [form, setForm] = useState({
-    name:         item?.name         || '',
-    unit:         item?.unit         || 'pieces',
-    quantity:     item?.quantity     ?? '',
-    reorderLevel: item?.reorderLevel ?? '5',
-    category:     item?.category     || 'Cleaning',
-    notes:        item?.notes        || ''
-  });
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.name) return toast.error('Item name is required.');
-    const qty     = parseFloat(form.quantity);
-    const reorder = parseFloat(form.reorderLevel);
-    if (isNaN(qty) || qty < 0) return toast.error('Quantity must be a positive number.');
-    
-    setLoading(true);
-    try {
-      const payload = { 
-        name: form.name, 
-        unit: form.unit, 
-        quantity: qty, 
-        reorderLevel: isNaN(reorder) ? 0 : reorder,
-        category: form.category,
-        notes: form.notes
-      };
-      
-      if (item) {
-        await updateItem({ token: sessionToken(), id: item._id, ...payload });
-        toast.success('Supply updated.');
-      } else {
-        await createItem({ token: sessionToken(), ...payload });
-        toast.success('New supply added.');
-      }
-      onClose();
-    } catch (err) {
-      toast.error(err.message || 'Something went wrong.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Modal
-      isOpen
-      onClose={onClose}
-      title={item ? 'Edit Supply Manifest' : 'New Supply Record'}
-      footer={
-        <div className="flex gap-4">
-          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-          <button onClick={handleSubmit} disabled={loading} className="btn-primary flex-1">
-            {loading ? 'Saving...' : item ? 'Save Changes' : 'Add Item'}
-          </button>
-        </div>
-      }
-    >
-      <div className="space-y-5">
-        <div>
-          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Supply Name</label>
-          <input className="input-field" placeholder="e.g. Lavender Floor Cleaner" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-        </div>
-        
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Classification</label>
-            <select className="input-field" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-              <option value="Cleaning">Cleaning Materials</option>
-              <option value="Toiletries">Guest Toiletries</option>
-              <option value="Office">Office Supplies</option>
-              <option value="Other">Miscellaneous</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Unit</label>
-            <select className="input-field" value={form.unit} onChange={e => setForm({ ...form, unit: e.target.value })}>
-              <option value="pieces">pieces (pcs)</option>
-              <option value="liters">liters (l)</option>
-              <option value="kg">kilograms (kg)</option>
-              <option value="boxes">boxes</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Current Stock</label>
-            <input type="number" step="any" min="0" className="input-field" value={form.quantity} onChange={e => setForm({ ...form, quantity: e.target.value })} />
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Reorder Level (Alert)</label>
-            <input type="number" step="any" min="0" className="input-field" value={form.reorderLevel} onChange={e => setForm({ ...form, reorderLevel: e.target.value })} />
-          </div>
-        </div>
-        
-        <div>
-          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Administrative Notes</label>
-          <textarea className="input-field h-24 py-3 items-start" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} placeholder="Procurement details or specific usage rules..." />
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ── Main page ────────────────────────────────────────────────────────────────
 export default function GeneralSupplies() {
-  const sessionToken = localStorage.getItem('swiss_side_session') || '';
-  const items = useQuery(api.generalSupplies.getAll, { token: sessionToken });
-  const removeItem = useMutation(api.generalSupplies.remove);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState('');
 
-  const [search,        setSearch]        = useState('');
-  const [actionModal,   setActionModal]   = useState(null); 
-  const [editModal,     setEditModal]     = useState(null); 
-  const [deleteTarget,  setDeleteTarget]  = useState(null); 
+  const [itemModal, setItemModal] = useState({ open: false, mode: 'add', data: null });
+  const [isBulkMaintenanceModalOpen, setIsBulkMaintenanceModalOpen] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
+  const [bulkMaintenanceData, setBulkMaintenanceData] = useState({ description: '', technician_name: '', status: 'pending', resolved_at: new Date().toISOString().split('T')[0] });
 
-  const filtered = (items || []).filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+  const [stockModal, setStockModal] = useState({ open: false, type: 'restock', data: null });
+  const [deleteModal, setDeleteModal] = useState({ open: false, data: null });
+
+  const [itemForm, setItemForm] = useState({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other' , is_folder: false, classification: '' });
+  const [stockQty, setStockQty] = useState('');
+  const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
+
+  useEffect(() => { fetchData(); }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const data = await api.get('/general-supplies');
+      setItems(data.results || data);
+    } catch (err) { toast.error('Failed to load supplies'); } finally { setLoading(false); }
+  };
+
+  
+  const toggleSelection = (id) => {
+    const newSelection = new Set(selectedItemIds);
+    if (newSelection.has(id)) newSelection.delete(id);
+    else newSelection.add(id);
+    setSelectedItemIds(newSelection);
+  };
+
+  const handleBulkMaintenance = async (e) => {
+    e.preventDefault();
+    if (selectedItemIds.size === 0) return toast.error("No items selected");
+    setSubmitting(true);
+    try {
+      await api.post('/supplies/general/maintenance/bulk', {
+        item_ids: Array.from(selectedItemIds),
+        ...bulkMaintenanceData
+      });
+      toast.success(`Logged maintenance for ${selectedItemIds.size} items`);
+      setIsBulkMaintenanceModalOpen(false);
+      setSelectedItemIds(new Set());
+      fetchData();
+    } catch (err) { toast.error('Failed to log bulk maintenance'); } finally { setSubmitting(false); }
+  };
+
+  const handleSaveItem = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      if (itemModal.mode === 'add') {
+        await api.post('/general-supplies', itemForm);
+      } else {
+        await api.put(`/general-supplies/${itemModal.data.id}`, itemForm);
+      }
+      toast.success('Registry updated');
+      setItemModal({ open: false, mode: 'add', data: null });
+      fetchData();
+    } catch (err) { toast.error('Failed to save'); } finally { setSubmitting(false); }
+  };
+
+  const handleStockUpdate = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    const isRestock = stockModal.type === 'restock';
+    const endpoint = isRestock ? '/general-supplies/restock' : '/general-supplies/withdraw';
+    try {
+      const response = await api.post(endpoint, { 
+        item_id: stockModal.data.id, 
+        quantity: parseFloat(stockQty),
+        transaction_date: isRestock ? stockDate : undefined
+      });
+      
+      // Feature 4: Live update
+      if (response.item) {
+        setItems(prev => prev.map(item =>
+          item.id === response.item.id ? { ...item, ...response.item } : item
+        ));
+      } else {
+        fetchData();
+      }
+
+      toast.success('Inventory modified');
+      setStockModal({ open: false, type: 'restock', data: null });
+      setStockQty('');
+      setStockDate(new Date().toISOString().split('T')[0]);
+    } catch (err) { toast.error('Update failed'); } finally { setSubmitting(false); }
+  };
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    setSubmitting(true);
     try {
-      await removeItem({ token: sessionToken(), id: deleteTarget._id });
-      toast.success(`"${deleteTarget.name}" removed.`);
-      setDeleteTarget(null);
-    } catch (err) {
-      toast.error(err.message || 'Something went wrong.');
-    }
+      await api.delete(`/general-supplies/${deleteModal.data.id}`);
+      toast.success('Asset removed');
+      setDeleteModal({ open: false, data: null });
+      setItems(prev => prev.filter(i => i.id !== deleteModal.data.id));
+    } catch (err) { toast.error('Deletion failed'); } finally { setSubmitting(false); }
   };
 
-  if (items === undefined) return (
-    <div className="p-12 font-mono text-slate-400 uppercase tracking-widest text-xs animate-pulse text-center">
-      Inventory Synchronization...
-    </div>
+  const getStatus = (item) => {
+    if (item.quantity <= 0) return 'out';
+    // Feature 23: Strict less than
+    if (item.reorder_level > 0 && item.quantity < item.reorder_level) return 'low';
+    return 'available';
+  };
+
+  const filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+
+  if (loading && !items.length) return (
+    <div className="h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={32} /></div>
   );
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
-
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#F3F4F6]">
         <div>
-          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-1 flex items-center gap-3">
-            <Package className="text-primary" size={32} /> General Supplies
-          </h1>
-          <p className="text-slate-500 font-medium">Click Withdraw or Restock on any item to log a movement.</p>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-2">Facility Module</span>
+          <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">General Supplies</h1>
         </div>
-        <button
-          onClick={() => setEditModal('new')}
-          className="btn-primary py-4 px-8 rounded-2xl flex items-center gap-3 shadow-premium hover:scale-[1.02] transition-all"
-        >
-          <Plus size={20} /> Add Supply
-        </button>
+        <button onClick={() => setItemModal({ open: true, mode: 'add', data: null })} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER SUPPLY</button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-        <input
-          type="text"
-          placeholder="Search items..."
-          className="w-full bg-white border border-slate-100 rounded-2xl py-4 pl-12 pr-6 text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all outline-none"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      <div className="flex items-center gap-3 bg-white border border-[#F3F4F6] rounded-2xl px-6 py-1 max-w-md shadow-sm">
+        <Search className="text-[#9CA3AF]" size={18} />
+        <input className="bg-transparent border-none focus:ring-0 w-full h-11 text-[14px] placeholder:text-[#9CA3AF]" placeholder="Search supplies..." value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {/* Table */}
-      <div className="system-card overflow-hidden bg-white shadow-premium border border-slate-50">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+      <div className="system-card p-0 overflow-hidden shadow-sm">
+        <div className="overflow-x-auto table-scroll">
+          <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-50/50 border-b-2 border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
-                <th className="px-8 py-5">Supply Asset</th>
-                <th className="px-8 py-5">Category</th>
-                <th className="px-8 py-5">Current Stock</th>
-                <th className="px-8 py-5 text-center">Status</th>
-                <th className="px-8 py-5 text-right">Actions</th>
+              <tr className="bg-[#F9FAFB]">
+                <th className="px-6 py-4">Supply Detail</th>
+                <th className="px-6 py-4">Stock Balance</th>
+                <th className="hidden md:table-cell px-6 py-4">Status</th>
+                <th className="text-right px-6 py-4">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtered.length === 0 ? (
-                <tr>
-                  <td colSpan="5" className="px-8 py-16 text-center text-slate-300 font-bold uppercase tracking-[0.3em] text-xs">
-                    No items found
+            <tbody className="divide-y divide-[#F3F4F6]">
+              {filtered.map(item => (
+                <tr key={item.id} className={`hover:bg-[#F9FAFB] transition-colors ${item.is_folder ? 'border-l-4 border-[#A0604E] bg-orange-50/10' : ''}`}>
+                  
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-[#FDF5F3] text-[#A0604E] rounded-xl flex items-center justify-center shrink-0"><Package size={20} /></div>
+                      <div>
+                        <span className="font-bold text-[#1A1A1A] block uppercase tracking-tight">{item.name}</span>
+                        <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.category} • {item.notes || 'Consumable'}</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
+                      <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
+                    </div>
+                  </td>
+                  <td className="hidden md:table-cell px-6 py-4">
+                    {(() => {
+                      const status = getStatus(item);
+                      if (status === 'out') return <span className="px-3 py-1 rounded-lg bg-[#FCEBEB] text-[#A32D2D] text-[9px] font-black uppercase tracking-[0.15em]">Out of Stock</span>;
+                      if (status === 'low') return <span className="px-3 py-1 rounded-lg bg-[#FAEEDA] text-[#854F0B] text-[9px] font-black uppercase tracking-[0.15em]">Low Stock</span>;
+                      return <span className="px-3 py-1 rounded-lg bg-[#EAF3DE] text-[#3B6D11] text-[9px] font-black uppercase tracking-[0.15em]">Available</span>;
+                    })()}
+                  </td>
+                  <td className="text-right px-6 py-4">
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setStockModal({ open: true, type: 'restock', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
+                      <button onClick={() => setStockModal({ open: true, type: 'withdraw', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
+                      <button onClick={() => setDeleteModal({ open: true, data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FCEBEB] text-[#A32D2D] rounded-full hover:scale-110 transition-transform"><Trash2 size={16} /></button>
+                    </div>
                   </td>
                 </tr>
-              ) : filtered.map(item => {
-                const isOut = item.quantity === 0;
-                const isLow = item.quantity > 0 && item.quantity <= item.reorderLevel;
-                return (
-                  <tr key={item._id} className="group hover:bg-slate-50/30 transition-all">
-                    {/* Name */}
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/5 rounded-xl flex items-center justify-center text-primary font-black text-sm group-hover:bg-primary group-hover:text-white transition-all">
-                          <Package size={20} />
-                        </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{item.name}</p>
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.unit}</p>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Category */}
-                    <td className="px-8 py-5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
-                        {item.category}
-                      </span>
-                    </td>
-
-                    {/* Stock */}
-                    <td className="px-8 py-5">
-                      <span className="font-mono text-lg font-black text-slate-800">
-                        {item.quantity}
-                        <span className="text-xs font-medium text-slate-400 ml-1">{item.unit}</span>
-                      </span>
-                    </td>
-
-                    {/* Status */}
-                    <td className="px-8 py-5 text-center">
-                      <span className={`status-badge ${isOut ? 'status-out' : isLow ? 'status-low' : 'status-ok'}`}>
-                        {isOut ? 'Depleted' : isLow ? 'Low Stock' : 'Sufficient'}
-                      </span>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-8 py-5">
-                      <div className="flex items-center justify-end gap-2">
-                        {/* Withdraw */}
-                        <button
-                          onClick={() => setActionModal({ item, mode: 'withdraw' })}
-                          disabled={item.quantity <= 0}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-danger/10 text-danger rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-danger hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                        >
-                          <MinusCircle size={14} /> Withdraw
-                        </button>
-
-                        {/* Restock */}
-                        <button
-                          onClick={() => setActionModal({ item, mode: 'restock' })}
-                          className="flex items-center gap-1.5 px-4 py-2 bg-success/10 text-success rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-success hover:text-white transition-all"
-                        >
-                          <PlusCircle size={14} /> Restock
-                        </button>
-
-                        {/* Edit / Delete (visible on hover) */}
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button
-                            onClick={() => setEditModal(item)}
-                            className="p-2.5 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-primary transition-all shadow-sm"
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(item)}
-                            className="p-2.5 bg-white border border-slate-100 rounded-xl text-slate-400 hover:text-danger transition-all shadow-sm"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modals */}
-      {actionModal && (
-        <ActionModal
-          item={actionModal.item}
-          mode={actionModal.mode}
-          onClose={() => setActionModal(null)}
-        />
-      )}
-      {editModal && (
-        <ItemFormModal
-          item={editModal === 'new' ? null : editModal}
-          onClose={() => setEditModal(null)}
-        />
-      )}
-      {deleteTarget && (
-        <DeleteConfirmModal
-          item={deleteTarget}
-          onClose={() => setDeleteTarget(null)}
-          onConfirm={handleDelete}
-        />
-      )}
+      
+      {/* MODALS */}
+      <Modal isOpen={stockModal.open} onClose={() => setStockModal({ open: false, type: 'restock', data: null })} title={`${stockModal.type === 'restock' ? 'Restock' : 'Withdraw'} - ${stockModal.data?.name}`}>
+        <form onSubmit={handleStockUpdate} className="space-y-6 py-4">
+          <div className="text-center mb-8">
+            <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest block mb-2">Current Balance</span>
+            <div className="text-4xl font-black text-[#1A1A1A] tracking-tighter">{stockModal.data?.quantity} <span className="text-lg opacity-40">{stockModal.data?.unit}</span></div>
+          </div>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Transaction Quantity</label>
+              <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
+            </div>
+            {stockModal.type === 'restock' ? (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Restock Date</label>
+                <div className="relative">
+                  <input type="date" className="input-field h-14 pl-12" value={stockDate} onChange={e => setStockDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
+                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3">
+                <Clock className="text-[#9CA3AF]" size={18} />
+                <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
+              </div>
+            )}
+          </div>
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-16 text-[13px] font-black uppercase tracking-widest">{submitting ? <Loader2 className="animate-spin" /> : `Confirm ${stockModal.type}`}</button>
+        </form>
+      </Modal>
+
+      <Modal isOpen={itemModal.open} onClose={() => setItemModal({ ...itemModal, open: false })} title={itemModal.mode === 'add' ? 'Register Item' : 'Modify Item'}>
+        <form onSubmit={handleSaveItem} className="space-y-6">
+          {itemModal.mode === 'add' && (
+            <div className="flex gap-4 p-1 bg-gray-100 rounded-xl mb-4">
+              <button type="button" onClick={() => setItemForm({...itemForm, is_folder: false})} className={`flex-1 py-2 text-xs font-bold rounded-lg ${!itemForm.is_folder ? 'bg-white shadow text-[#A0604E]' : 'text-gray-500'}`}>Single Item</button>
+              <button type="button" onClick={() => setItemForm({...itemForm, is_folder: true})} className={`flex-1 py-2 text-xs font-bold rounded-lg ${itemForm.is_folder ? 'bg-white shadow text-[#A0604E]' : 'text-gray-500'}`}>Group / Folder</button>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Item Name</label>
+            <input className="input-field" value={itemForm.name} onChange={e => setItemForm({...itemForm, name: e.target.value})} required placeholder="e.g. Cleaning Supplies" />
+          </div>
+          
+          {!itemForm.is_folder && (
+            <div className="space-y-1.5 mb-6">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Classification (Optional)</label>
+              <input className="input-field" value={itemForm.classification || ''} onChange={e => setItemForm({...itemForm, classification: e.target.value})} placeholder="e.g. Expiration Date, Supplier" />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
+              <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, liters, boxes" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
+              <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
+            </div>
+          </div>
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">SAVE LIST</button>
+        </form>
+      </Modal>
+
+      
+      <Modal isOpen={isBulkMaintenanceModalOpen} onClose={() => setIsBulkMaintenanceModalOpen(false)} title={`Log Maintenance (${selectedItemIds.size} items)`}>
+        <form onSubmit={handleBulkMaintenance} className="space-y-6 py-4">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Maintenance Description</label>
+            <textarea className="input-field h-20 pt-4" value={bulkMaintenanceData.description} onChange={e => setBulkMaintenanceData({...bulkMaintenanceData, description: e.target.value})} required />
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Status</label>
+              <select className="input-field" value={bulkMaintenanceData.status} onChange={e => setBulkMaintenanceData({...bulkMaintenanceData, status: e.target.value})}>
+                <option value="pending">Pending Repair</option>
+                <option value="resolved">Already Resolved</option>
+              </select>
+            </div>
+            {bulkMaintenanceData.status === 'resolved' && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Resolution Date</label>
+                <input type="date" className="input-field" value={bulkMaintenanceData.resolved_at} onChange={e => setBulkMaintenanceData({...bulkMaintenanceData, resolved_at: e.target.value})} max={new Date().toISOString().split('T')[0]} required />
+              </div>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black text-[#A0604E] uppercase tracking-widest ml-1">Serviced By (Technician Name)</label>
+            <input type="text" className="input-field border-[#A0604E]/30 focus:border-[#A0604E]" value={bulkMaintenanceData.technician_name} onChange={e => setBulkMaintenanceData({...bulkMaintenanceData, technician_name: e.target.value})} required={bulkMaintenanceData.status === 'resolved'} />
+          </div>
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">Save Maintenance Log</button>
+        </form>
+      </Modal>
+
+      <DeleteConfirmModal isOpen={deleteModal.open} onClose={() => setDeleteModal({ open: false, data: null })} onConfirm={handleDelete} loading={submitting} title="Remove Supply" />
     </div>
   );
 }

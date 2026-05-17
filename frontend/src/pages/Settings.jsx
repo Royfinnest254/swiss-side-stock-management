@@ -1,388 +1,349 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useAction } from "convex/react";
-import { api } from "../../convex/_generated/api";
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { UserPlus, Trash2, ShieldCheck, Users, Lock, KeyRound, X, Eye, EyeOff, Pencil, Check } from 'lucide-react';
+import { ShieldCheck, Users, Lock, KeyRound, X, Eye, EyeOff, Pencil, Check, Loader2, Camera, ExternalLink } from 'lucide-react';
+import api from '../lib/api';
 
-// ── Inline editable name field ───────────────────────────────────────────────
 function EditableName({ currentName, onSave }) {
   const [editing, setEditing] = useState(false);
-  const [value, setValue]     = useState(currentName || '');
+  const [value, setValue] = useState(currentName || '');
+
+  useEffect(() => {
+    setValue(currentName || '');
+  }, [currentName]);
 
   const handleSave = async () => {
+    if (!value.trim()) {
+      toast.error('Name cannot be empty');
+      return;
+    }
     await onSave(value);
     setEditing(false);
   };
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <input
           type="text"
-          className="input-field flex-1 h-11 text-sm"
-          placeholder="Your name (e.g. Roy)"
+          className="input-field flex-1"
           value={value}
           onChange={e => setValue(e.target.value)}
           autoFocus
           onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') setEditing(false); }}
         />
-        <button onClick={handleSave} className="p-2.5 bg-primary text-white rounded-xl hover:opacity-90 transition-all">
-          <Check size={16} />
+        <button onClick={handleSave} className="w-12 h-12 bg-[#A0604E] text-white rounded-2xl flex items-center justify-center shadow-lg shadow-[#A0604E]/20">
+          <Check size={20} />
         </button>
-        <button onClick={() => setEditing(false)} className="p-2.5 bg-slate-100 text-slate-500 rounded-xl hover:bg-slate-200 transition-all">
-          <X size={16} />
+        <button onClick={() => setEditing(false)} className="w-12 h-12 bg-white text-[#9CA3AF] rounded-2xl flex items-center justify-center border border-[#F3F4F6]">
+          <X size={20} />
         </button>
       </div>
     );
   }
 
   return (
-    <div className="input-field bg-slate-50 border-slate-100 flex items-center justify-between font-bold text-slate-900 cursor-pointer group hover:border-primary/30 transition-all" onClick={() => setEditing(true)}>
-      <span>{value || <span className="text-slate-300 font-medium">Not set — click to add</span>}</span>
-      <Pencil size={14} className="text-slate-300 group-hover:text-primary transition-colors" />
+    <div className="input-field flex items-center justify-between cursor-pointer group" onClick={() => setEditing(true)}>
+      <span className="font-bold">{value || <span className="text-[#9CA3AF] font-normal">Set display name...</span>}</span>
+      <Pencil size={16} className="text-[#9CA3AF] group-hover:text-[#A0604E] transition-colors" />
     </div>
   );
 }
 
-// ── Reset Password Modal ─────────────────────────────────────────────────────
-function ResetPasswordModal({ user, adminToken, onClose }) {
-  const resetPassword = useAction(api.actions.adminResetPasswordAction);
-  const [newPass, setNewPass]       = useState('');
-  const [confirmPass, setConfirm]   = useState('');
-  const [showPass, setShowPass]     = useState(false);
-  const [loading, setLoading]       = useState(false);
+export default function Settings() {
+  const navigate = useNavigate();
+  const userEmail = localStorage.getItem('swiss_side_user') || 'Manager';
+  const userRole = localStorage.getItem('swiss_side_role') || 'staff';
+  const isAdmin = userRole === 'admin';
 
-  const handleReset = async (e) => {
-    e.preventDefault();
-    if (!newPass) return toast.error('Enter a new password.');
-    if (newPass.length < 8) return toast.error('Password must be at least 8 characters.');
-    if (newPass !== confirmPass) return toast.error('Passwords do not match.');
-    setLoading(true);
+  // Profile States
+  const [displayName, setDisplayName] = useState(localStorage.getItem('swiss_side_display_name') || userEmail.split('@')[0]);
+  const [profilePhoto, setProfilePhoto] = useState(localStorage.getItem('swiss_side_photo') || null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef(null);
+
+  // Self-Service Change Password States
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [submittingPassword, setSubmittingPassword] = useState(false);
+
+  useEffect(() => {
+    // Dynamic on-mount synchronization of current session credentials from backend
+    const fetchMe = async () => {
+      try {
+        const me = await api.get('/auth/me');
+        if (me.display_name) {
+          localStorage.setItem('swiss_side_display_name', me.display_name);
+          setDisplayName(me.display_name);
+        }
+        if (me.profile_photo) {
+          localStorage.setItem('swiss_side_photo', me.profile_photo);
+          setProfilePhoto(me.profile_photo);
+        }
+      } catch (err) {
+        console.error('[Fetch Me Error]', err);
+      }
+    };
+    fetchMe();
+  }, []);
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) return toast.error('Image must be under 2MB');
+    
+    setUploadingPhoto(true);
     try {
-      await resetPassword({ adminToken, userId: user._id, newPassword: newPass });
-      toast.success(`Password reset for ${user.displayName || user.email}. They must log in again.`);
-      onClose();
+      const formData = new FormData();
+      formData.append('photo', file);
+      const result = await api.postForm('/auth/me/photo', formData);
+      setProfilePhoto(result.profile_photo);
+      localStorage.setItem('swiss_side_photo', result.profile_photo);
+      toast.success('Profile photo updated');
     } catch (err) {
-      toast.error(err.message || 'Something went wrong.');
+      toast.error('Photo upload failed');
     } finally {
-      setLoading(false);
+      setUploadingPhoto(false);
     }
   };
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" />
-      <div
-        className="relative bg-white rounded-[28px] shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
-              <KeyRound size={20} />
-            </div>
-            <div>
-              <p className="font-black text-slate-900">Reset Password</p>
-              <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest">
-                {user.displayName || user.email}
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400">
-            <X size={18} />
-          </button>
-        </div>
-
-        <form onSubmit={handleReset} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">New Password</label>
-            <div className="relative">
-              <input
-                type={showPass ? 'text' : 'password'}
-                className="input-field pr-12"
-                placeholder="Min. 8 characters"
-                value={newPass}
-                onChange={e => setNewPass(e.target.value)}
-                autoComplete="new-password"
-                autoFocus
-              />
-              <button type="button" onClick={() => setShowPass(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
-                {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Confirm Password</label>
-            <input
-              type={showPass ? 'text' : 'password'}
-              className="input-field"
-              placeholder="Repeat password"
-              value={confirmPass}
-              onChange={e => setConfirm(e.target.value)}
-              autoComplete="new-password"
-            />
-          </div>
-          <p className="text-[10px] text-slate-400 font-medium">
-            ⚠️ The user will be logged out and must sign in with the new password.
-          </p>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1 h-12 rounded-xl">Cancel</button>
-            <button type="submit" disabled={loading} className="btn-primary flex-1 h-12 rounded-xl">
-              {loading ? 'Resetting...' : 'Reset Password'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ── Main Settings page ───────────────────────────────────────────────────────
-export default function Settings() {
-  const adminToken = localStorage.getItem('swiss_side_session') || '';
-  const userEmail  = localStorage.getItem('swiss_side_user') || 'Manager';
-  const userRole   = localStorage.getItem('swiss_side_role') || 'staff';
-  const isAdmin    = userRole === 'super_admin';
-
-  const [newStaffName,  setNewStaffName]  = useState('');
-  const [newStaffEmail, setNewStaffEmail] = useState('');
-  const [newStaffPass,  setNewStaffPass]  = useState('');
-  const [showPass,      setShowPass]      = useState(false);
-  const [adding,        setAdding]        = useState(false);
-  const [resetTarget,   setResetTarget]   = useState(null);
-
-  const allUsers    = useQuery(api.users.listAllUsers, isAdmin ? { adminToken } : "skip");
-  const createStaff = useAction(api.actions.createStaff);
-  const removeUser  = useMutation(api.users.removeUser);
-  const updateNameMutation = useMutation(api.users.updateDisplayName);
 
   const handleUpdateName = async (newName) => {
     try {
-      await updateNameMutation({ token: adminToken, displayName: newName });
+      await api.patch('/auth/display-name', { displayName: newName });
       localStorage.setItem('swiss_side_display_name', newName);
-      toast.success('Display name updated. Refresh to see changes globally.');
-    } catch (e) {
-      toast.error(e.message || 'Failed to update name');
+      setDisplayName(newName);
+      toast.success('Identity synchronized');
+    } catch (e) { 
+      toast.error('Update failed'); 
     }
   };
 
-  const handleCreateStaff = async (e) => {
+  const handleChangePassword = async (e) => {
     e.preventDefault();
-    if (!newStaffEmail || !newStaffPass) return toast.error("Email and password are required.");
-    if (newStaffPass.length < 8) return toast.error("Password must be at least 8 characters.");
-    setAdding(true);
-    try {
-      await createStaff({
-        adminToken,
-        newEmail:     newStaffEmail,
-        newPassword:  newStaffPass,
-        displayName:  newStaffName.trim() || undefined,
-      });
-      toast.success('Staff account created!');
-      setNewStaffName('');
-      setNewStaffEmail('');
-      setNewStaffPass('');
-    } catch (err) {
-      toast.error(err.message || 'Something went wrong.');
-    } finally {
-      setAdding(false);
+    if (newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters long');
+      return;
     }
-  };
+    if (newPassword !== confirmPassword) {
+      toast.error('New passwords do not match');
+      return;
+    }
 
-  const handleRemoveUser = async (userId, label) => {
-    if (label === userEmail) return toast.error("You cannot remove yourself!");
-    if (window.confirm(`Remove access for ${label}?`)) {
-      try {
-        await removeUser({ adminToken, userId });
-        toast.success('User access revoked.');
-      } catch (err) {
-        toast.error(err.message || 'Something went wrong.');
-      }
+    setSubmittingPassword(true);
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword,
+        newPassword
+      });
+      toast.success('Your password has been securely changed successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Password update failed. Please verify your current password.');
+    } finally {
+      setSubmittingPassword(false);
     }
   };
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-700 max-w-[1400px] mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-slate-100 pb-10">
+    <div className="space-y-12 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#F3F4F6]">
         <div>
-          <h1 className="text-4xl font-extrabold text-slate-900 tracking-tight mb-2">System Configuration</h1>
-          <p className="text-slate-500 font-medium">Manage access, security and system health.</p>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-2">Platform Controls</span>
+          <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">System Settings</h1>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-
-        {/* Security Clearance card — everyone sees this */}
-        <div className="system-card bg-white p-10 shadow-premium border border-slate-50">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center text-primary">
-              <ShieldCheck size={28} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left Column: Profile Card */}
+        <section className="system-card space-y-8">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-[#FDF5F3] text-[#A0604E] rounded-2xl flex items-center justify-center">
+              <ShieldCheck size={24} />
             </div>
-            <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Security Clearance</h3>
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#1A1A1A]">Security Identity</h3>
+              <p className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest mt-0.5">Manage your personal profile</p>
+            </div>
           </div>
+
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Operating As</label>
-                <EditableName 
-                  currentName={localStorage.getItem('swiss_side_display_name') || userEmail.split('@')[0]} 
-                  onSave={handleUpdateName} 
+            {/* Profile Photo */}
+            <div className="space-y-3">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Profile Photo</label>
+              <div className="flex items-center gap-5">
+                <div
+                  className="w-16 h-16 rounded-2xl overflow-hidden border border-[#F3F4F6] bg-[#F9FAFB] flex items-center justify-center cursor-pointer relative group flex-shrink-0"
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  {profilePhoto ? (
+                    <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" onError={() => setProfilePhoto(null)} />
+                  ) : (
+                    <span className="text-2xl font-black text-[#A0604E] select-none">{displayName[0]?.toUpperCase()}</span>
+                  )}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    {uploadingPhoto ? <Loader2 size={18} className="animate-spin text-white" /> : <Camera size={18} className="text-white" />}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <button
+                    onClick={() => photoInputRef.current?.click()}
+                    disabled={uploadingPhoto}
+                    className="h-9 px-4 bg-[#1A1A1A] text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#A0604E] transition-all disabled:opacity-50 font-bold"
+                  >
+                    {uploadingPhoto ? 'Uploading...' : 'Change Photo'}
+                  </button>
+                  <p className="text-[10px] text-[#9CA3AF] font-medium uppercase tracking-wider">JPEG, PNG or WebP. Max 2MB.</p>
+                </div>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={handlePhotoChange}
                 />
               </div>
-              <div>
-                <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Access Level</label>
-                <div className="input-field bg-slate-50 border-slate-100 flex items-center font-black text-primary uppercase tracking-widest">
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Official Name</label>
+              <EditableName 
+                currentName={displayName} 
+                onSave={handleUpdateName} 
+              />
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Access Tier</label>
+                <div className="input-field flex items-center font-black text-[#A0604E] uppercase tracking-[0.15em] text-[11px] bg-[#FDF5F3] border-none">
                   {userRole.replace('_', ' ')}
                 </div>
               </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Account ID</label>
+                <div className="input-field flex items-center text-[#9CA3AF] font-bold text-[12px] truncate">
+                  {userEmail}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Right Column: Secure Self-Service Change Password */}
+        <section className="system-card space-y-8">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-[#FDF5F3] text-[#A0604E] rounded-2xl flex items-center justify-center">
+              <Lock size={24} />
             </div>
             <div>
-              <label className="block text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Authorized Email</label>
-              <div className="input-field bg-slate-50 border-slate-100 flex items-center font-medium text-slate-600">
-                {userEmail}
+              <h3 className="text-sm font-black uppercase tracking-widest text-[#1A1A1A]">Update Credentials</h3>
+              <p className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest mt-0.5">Securely modify your password</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Current Password</label>
+              <div className="relative">
+                <input 
+                  type={showCurrent ? 'text' : 'password'} 
+                  className="input-field pr-12 text-sm" 
+                  value={currentPassword} 
+                  onChange={e => setCurrentPassword(e.target.value)} 
+                  required 
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrent(!showCurrent)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors"
+                >
+                  {showCurrent ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
             </div>
 
-            {!isAdmin && (
-              <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center gap-4">
-                <KeyRound size={20} className="text-slate-400 shrink-0" />
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">New Password</label>
+              <div className="relative">
+                <input 
+                  type={showNew ? 'text' : 'password'} 
+                  className="input-field pr-12 text-sm" 
+                  value={newPassword} 
+                  onChange={e => setNewPassword(e.target.value)} 
+                  required 
+                  placeholder="At least 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNew(!showNew)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors"
+                >
+                  {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Confirm New Password</label>
+              <div className="relative">
+                <input 
+                  type={showConfirm ? 'text' : 'password'} 
+                  className="input-field pr-12 text-sm" 
+                  value={confirmPassword} 
+                  onChange={e => setConfirmPassword(e.target.value)} 
+                  required 
+                  placeholder="At least 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#1A1A1A] transition-colors"
+                >
+                  {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={submittingPassword}
+              className="btn-primary w-full h-12 mt-6 flex items-center justify-center gap-2 font-black uppercase text-[10px] tracking-widest h-14"
+            >
+              {submittingPassword ? <Loader2 className="animate-spin" size={16} /> : <><KeyRound size={16} /> Save Password Update</>}
+            </button>
+          </form>
+        </section>
+
+        {/* Bottom Section: Admin Staff Management Navigation */}
+        {isAdmin && (
+          <section className="system-card space-y-6 lg:col-span-2 bg-[#F9FAFB]/50 border-dashed border-2 border-[#E5E7EB]">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-white text-[#A0604E] border border-[#F3F4F6] rounded-2xl flex items-center justify-center shadow-sm">
+                  <Users size={24} />
+                </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-700">Need to change your password?</p>
-                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                    Contact your administrator — they can reset it for you from the admin panel.
-                  </p>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-[#1A1A1A]">Staff Accounts Directory</h3>
+                  <p className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest mt-1">Invite new personnel or manage staff status</p>
                 </div>
               </div>
-            )}
-          </div>
-        </div>
-
-        {isAdmin ? (
-          <div className="system-card bg-white p-10 shadow-premium border border-slate-50 relative overflow-hidden xl:col-span-2">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white">
-                <Users size={24} />
-              </div>
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Team Authorization</h3>
-            </div>
-
-            {/* Add Staff Form */}
-            <form onSubmit={handleCreateStaff} className="bg-slate-50/50 p-6 rounded-[24px] border border-slate-100 mb-10">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Register New Staff Access</p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <input
-                  type="text"
-                  placeholder="Display Name (e.g. Cynthia)"
-                  className="input-field h-12 text-sm bg-white"
-                  value={newStaffName}
-                  onChange={e => setNewStaffName(e.target.value)}
-                  autoComplete="off"
-                />
-                <input
-                  type="email"
-                  placeholder="Email Address"
-                  className="input-field h-12 text-sm bg-white"
-                  value={newStaffEmail}
-                  onChange={e => setNewStaffEmail(e.target.value)}
-                  autoComplete="off"
-                />
-                <div className="relative">
-                  <input
-                    type={showPass ? 'text' : 'password'}
-                    placeholder="Temporary Password"
-                    className="input-field h-12 text-sm bg-white pr-12 w-full"
-                    value={newStaffPass}
-                    onChange={e => setNewStaffPass(e.target.value)}
-                    autoComplete="new-password"
-                  />
-                  <button type="button" onClick={() => setShowPass(v => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
-                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-              <button
-                type="submit"
-                disabled={adding}
-                className="btn-primary w-full h-12 rounded-xl flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest"
+              <button 
+                onClick={() => navigate('/admin/users')}
+                className="btn-primary flex items-center gap-2 h-12 px-8 uppercase text-[10px] font-black tracking-widest shadow-premium flex-shrink-0"
               >
-                <UserPlus size={18} /> {adding ? 'Registering...' : 'Register Staff Account'}
+                Go to User Management <ExternalLink size={14} />
               </button>
-            </form>
-
-            {/* User List */}
-            <div className="space-y-3">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Active Facility Access</p>
-              {allUsers === undefined ? (
-                <div className="p-8 text-center animate-pulse text-[10px] text-slate-300 font-black uppercase tracking-widest">
-                  Synchronizing...
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-50 border border-slate-100 rounded-[24px] overflow-hidden bg-white">
-                  {allUsers.map(user => {
-                    const label = user.displayName || user.email;
-                    return (
-                      <div key={user._id} className="flex items-center justify-between p-5 hover:bg-slate-50/50 transition-colors">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 font-black text-sm">
-                            {label.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold text-slate-900">{label}</p>
-                            {user.displayName && (
-                              <p className="text-[10px] text-slate-400 font-medium">{user.email}</p>
-                            )}
-                            <p className="text-[9px] uppercase font-black text-primary tracking-widest mt-0.5">
-                              {user.role.replace('_', ' ')}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setResetTarget(user)}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all"
-                          >
-                            <KeyRound size={13} /> Reset PW
-                          </button>
-                          {user.role !== 'super_admin' && (
-                            <button
-                              onClick={() => handleRemoveUser(user._id, label)}
-                              className="p-2.5 text-slate-300 hover:text-danger hover:bg-danger/5 rounded-xl transition-all"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
-          </div>
-        ) : (
-          <div className="system-card bg-white p-10 shadow-premium border border-slate-50 flex flex-col items-center justify-center text-center gap-6 min-h-[300px]">
-            <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400">
-              <Lock size={32} />
-            </div>
-            <div>
-              <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight mb-2">Admin Access Required</h3>
-              <p className="text-slate-400 text-sm font-medium max-w-xs">
-                User management is restricted to administrators.
-              </p>
-            </div>
-          </div>
+          </section>
         )}
       </div>
-
-      {resetTarget && (
-        <ResetPasswordModal
-          user={resetTarget}
-          adminToken={adminToken}
-          onClose={() => setResetTarget(null)}
-        />
-      )}
     </div>
   );
 }

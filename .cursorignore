@@ -1,0 +1,16 @@
+node_modules/
+.git/
+dist/
+build/
+.temp/
+*.zip
+*.log
+.DS_Store
+.env
+.agents/
+.gemini/
+*.sql
+*.csv
+vendor/
+composer.lock
+package-lock.json

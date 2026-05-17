@@ -51,3 +51,11 @@ export const remove = mutation({
     await ctx.db.delete(args.id);
   },
 });
+
+export const countItems = query({
+  args: {},
+  handler: async (ctx) => {
+    const items = await ctx.db.query("items").collect();
+    return items.length;
+  },
+});

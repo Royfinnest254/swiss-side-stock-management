@@ -26,6 +26,7 @@ export default defineSchema({
     unit: v.string(),
     quantity: v.number(),
     reorderLevel: v.number(),
+    isTest: v.optional(v.boolean()),
   })
   .index("by_name", ["name"])
   .searchIndex("search_name", { searchField: "name" }),

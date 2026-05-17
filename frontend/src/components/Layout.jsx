@@ -1,242 +1,45 @@
-import { useEffect, useState } from 'react';
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { Toaster, toast } from 'react-hot-toast';
-import { useQuery, useMutation } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import { 
-  LayoutDashboard, 
-  ChefHat, 
-  Dumbbell, 
-  Bed, 
-  History, 
-  BarChart3, 
-  Settings, 
-  LogOut, 
-  Menu, 
-  X,
-  ChevronRight,
-  Package,
-  Wrench,
-  User,
-  ShieldCheck
-} from 'lucide-react';
+import React from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
+import Sidebar from './Sidebar';
+import TopBar from './TopBar';
 
-const Layout = () => {
-  const navigate = useNavigate();
+export default function Layout() {
+  const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const location = useLocation();
-  const [userEmail, setUserEmail] = useState(localStorage.getItem('swiss_side_user') || 'Manager');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-
-  const sessionToken = localStorage.getItem('swiss_side_session') || '';
-  
-  // Convex is fully reactive — verifySession re-runs automatically.
-  const verifiedUser = useQuery(api.users.verifySession, 
-    sessionToken ? { token: sessionToken } : "skip"
-  );
-  
-  const promoteToAdmin = useMutation(api.users.promoteOnlyUserToAdmin);
-
-  useEffect(() => {
-    // If we have a token but the server says it's invalid (null)
-    if (sessionToken && verifiedUser === null) {
-      toast.error('Session expired. Please log in again.');
-      localStorage.removeItem('swiss_side_session');
-      localStorage.removeItem('swiss_side_user');
-      localStorage.removeItem('swiss_side_role');
-      navigate('/login');
-    } 
-    // If the server confirms the user, sync their email + role from server (single source of truth)
-    else if (verifiedUser && verifiedUser.email) {
-      setUserEmail(verifiedUser.email);
-      localStorage.setItem('swiss_side_user', verifiedUser.email);
-      localStorage.setItem('swiss_side_role', verifiedUser.role);
-      if (verifiedUser.displayName) {
-        localStorage.setItem('swiss_side_display_name', verifiedUser.displayName);
-      }
-    }
-  }, [verifiedUser, navigate, sessionToken]);
-
-  const handleLogout = () => {
-    localStorage.removeItem('swiss_side_session');
-    localStorage.removeItem('swiss_side_user');
-    toast.success('Logged out successfully');
-    navigate('/login');
-  };
-
-  const navGroups = [
-    {
-      id: 'hubs',
-      title: 'Facility Operations',
-      icon: Package,
-      items: [
-        { name: 'Kitchen Hub', path: '/inventory', icon: ChefHat },
-        { name: 'Gym Center', path: '/gym-inventory', icon: Dumbbell },
-        { name: 'Room Registry', path: '/rooms', icon: Bed },
-        { name: 'General Supplies', path: '/general-supplies', icon: Package },
-      ]
-    },
-    {
-      id: 'admin',
-      title: 'Administrative',
-      icon: ShieldCheck,
-      items: [
-        { name: 'Operational Intelligence', path: '/reports', icon: BarChart3 },
-        { name: 'Audit Logs', path: '/history', icon: History },
-        { name: 'System Configuration', path: '/settings', icon: Settings },
-      ]
-    }
-  ];
-
-  const [expandedGroups, setExpandedGroups] = useState(['hubs']);
-
-  const toggleGroup = (id) => {
-    setExpandedGroups(prev => 
-      prev.includes(id) ? prev.filter(g => g !== id) : [...prev, id]
-    );
-  };
-
-  const SidebarContent = () => (
-    <div className="flex flex-col h-full bg-white text-slate-600 font-sans border-r border-slate-100">
-      {/* Brand */}
-      <div className="h-[120px] px-8 flex flex-col items-center justify-center border-b border-slate-50 bg-slate-50/30">
-        <div className="w-[60px] h-[60px] bg-white rounded-2xl flex items-center justify-center overflow-hidden shadow-sm border border-slate-100 mb-2">
-          <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
-        </div>
-        <div className="text-center">
-          <h1 className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">Swiss Side Iten</h1>
-        </div>
-      </div>
-
-      {/* Navigation */}
-      <div className="flex-1 overflow-y-auto py-8 px-4 space-y-2 no-scrollbar">
-        {/* Main Links */}
-        <NavLink
-          to="/dashboard"
-          onClick={() => setIsMobileMenuOpen(false)}
-          className={({ isActive }) =>
-            `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all group mb-4 ${
-              isActive 
-                ? 'bg-primary text-white shadow-premium' 
-                : 'hover:bg-slate-50 hover:text-slate-900'
-            }`
-          }
-        >
-          <LayoutDashboard size={18} />
-          Dashboard
-        </NavLink>
-
-        {navGroups.map((group) => (
-          <div key={group.id} className="space-y-1">
-            <button 
-              onClick={() => toggleGroup(group.id)}
-              className="w-full flex items-center justify-between px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em] hover:text-primary transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                {group.title}
-              </div>
-              <ChevronRight size={12} className={`transition-transform duration-300 ${expandedGroups.includes(group.id) ? 'rotate-90' : ''}`} />
-            </button>
-            
-            {expandedGroups.includes(group.id) && (
-              <div className="space-y-1 animate-in slide-in-from-top-2 duration-200">
-                {group.items.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all group ${
-                        isActive 
-                          ? 'text-primary bg-primary/5 font-bold' 
-                          : 'text-slate-500 hover:text-primary hover:bg-slate-50'
-                      }`
-                    }
-                  >
-                    <item.icon size={16} className={location.pathname === item.path ? 'text-primary' : 'text-slate-400 group-hover:text-primary'} />
-                    {item.name}
-                  </NavLink>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* User / Footer */}
-      <div className="p-6 border-t border-slate-50 bg-slate-50/30">
-        <div className="flex items-center gap-4 px-3 py-3 mb-4 rounded-xl bg-white border border-slate-100 shadow-sm">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold border border-primary/20 overflow-hidden">
-            <img src="/logo.png" alt="User" className="w-full h-full object-cover opacity-50" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-900 truncate">
-              {localStorage.getItem('swiss_side_display_name') || userEmail.split('@')[0]}
-            </p>
-            <p className="text-[9px] text-slate-400 truncate uppercase tracking-widest font-black">Authorized</p>
-          </div>
-        </div>
-        <button 
-          onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-2 py-3 text-[10px] font-black text-slate-400 hover:text-danger hover:bg-danger/5 rounded-xl transition-all uppercase tracking-[0.2em]"
-        >
-          <LogOut size={14} />
-          Sign Out
-        </button>
-      </div>
-    </div>
-  );
+  // Close sidebar on navigation on mobile
+  React.useEffect(() => {
+    setSidebarOpen(false);
+  }, [location]);
 
   return (
-    <div className="min-h-screen bg-background flex font-sans text-slate-900 selection:bg-primary/20 selection:text-primary">
-      <Toaster position="top-right" />
-      
-      {/* Desktop Sidebar */}
-      <aside className={`hidden md:block w-[280px] fixed inset-y-0 z-50 transition-transform duration-500 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <SidebarContent />
-      </aside>
-
-      {/* Mobile Top Bar */}
-      <div className="md:hidden fixed top-0 inset-x-0 h-[72px] bg-white border-b border-slate-100 z-50 px-6 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 bg-white rounded-xl flex items-center justify-center overflow-hidden border border-slate-100 shadow-sm">
-            <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
-          </div>
-          <div>
-            <h1 className="text-xs font-black text-slate-900 uppercase tracking-widest">Swiss Side</h1>
-            <p className="text-[10px] font-bold text-primary uppercase">Management</p>
-          </div>
-        </div>
-        <button 
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 text-slate-900 hover:bg-slate-50 rounded-xl border border-slate-100 transition-all"
-        >
-          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
-      </div>
-
-      {/* Mobile Menu Overlay */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden fixed inset-0 z-[60] flex animate-in fade-in duration-300">
-          <div className="w-[300px] h-full shadow-elevated animate-in slide-in-from-left duration-500">
-            <SidebarContent />
-          </div>
-          <div 
-            className="flex-1 bg-slate-950/60 backdrop-blur-md"
-            onClick={() => setIsMobileMenuOpen(false)}
-          ></div>
-        </div>
+    <div className="flex h-screen overflow-hidden bg-[#F9FAFB]">
+      {/* Mobile Sidebar Backdrop */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-[#ede9e5]/60 backdrop-blur-sm z-[200] lg:hidden animate-in fade-in duration-300"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
+      {/* Sidebar Drawer */}
+      <div className={`
+        fixed inset-y-0 left-0 z-[201] w-[280px] bg-white shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:translate-x-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <Sidebar sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} isMobile={sidebarOpen} />
+      </div>
+
       {/* Main Content Area */}
-      <main className={`flex-1 flex flex-col min-w-0 transition-all duration-500 ease-in-out ${isSidebarOpen ? 'md:pl-[280px]' : ''} pt-[72px] md:pt-0`}>
-        <div className="flex-1 p-6 md:p-12 lg:p-16 w-full max-w-none">
-          <Outlet />
-        </div>
-      </main>
+      <div className="flex-1 flex flex-col min-w-0 h-screen relative">
+        <TopBar onMenuClick={() => setSidebarOpen(true)} />
+
+        <main className="flex-1 overflow-y-auto scrollbar-hide">
+          <div className="max-w-[1600px] mx-auto p-4 md:p-8 lg:p-10">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
-};
-
-export default Layout;
+}

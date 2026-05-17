@@ -1,48 +1,85 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/Layout'
-import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Withdraw from './pages/Withdraw'
-import Restock from './pages/Restock'
-import History from './pages/History'
-import Reports from './pages/Reports'
-import Inventory from './pages/Inventory'
-import GymInventory from './pages/GymInventory'
-import RoomInventory from './pages/RoomInventory'
-import RoomList from './pages/rooms/RoomList'
-import RoomDetail from './pages/rooms/RoomDetail'
-import GymMaintenance from './pages/gym/GymMaintenance'
-import Settings from './pages/Settings'
-import GeneralSupplies from './pages/GeneralSupplies'
+import { lazy, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
+import { Loader2 } from 'lucide-react';
 
-// Guard: redirect to /login if no session token in localStorage
-function ProtectedRoute({ children }) {
+// Lazy load pages for dynamic code-splitting and performance tuning
+const Login = lazy(() => import('./pages/Login'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Kitchen = lazy(() => import('./pages/Kitchen'));
+const Spa = lazy(() => import('./pages/Spa'));
+const Shop = lazy(() => import('./pages/Shop'));
+const Gym = lazy(() => import('./pages/Gym'));
+const Supplies = lazy(() => import('./pages/Supplies'));
+const Laundry = lazy(() => import('./pages/Laundry'));
+const Accommodation = lazy(() => import('./pages/Accommodation'));
+const Needs = lazy(() => import('./pages/Needs'));
+const Reports = lazy(() => import('./pages/Reports'));
+const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
+const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
+const RecycleBin = lazy(() => import('./pages/admin/RecycleBin'));
+const AuditLogs = lazy(() => import('./pages/admin/AuditLogs'));
+const SystemHealth = lazy(() => import('./pages/admin/SystemHealth'));
+const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const Initialize = lazy(() => import('./pages/Initialize'));
+const Settings = lazy(() => import('./pages/Settings'));
+
+// A sleek, premium loader component matching the terracotta branding
+function SuspenseFallback() {
+  return (
+    <div className="h-[75vh] w-full flex flex-col items-center justify-center gap-4 animate-in fade-in duration-300">
+      <Loader2 className="animate-spin text-[#A0604E]" size={36} strokeWidth={2.5} />
+      <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#A0604E]">Loading Swiss Side Module</span>
+    </div>
+  );
+}
+
+function ProtectedRoute({ children, adminOnly = false }) {
   const token = localStorage.getItem('swiss_side_session');
+  const role = localStorage.getItem('swiss_side_role');
+
   if (!token) return <Navigate to="/login" replace />;
+  if (adminOnly && role !== 'admin') return <Navigate to="/dashboard" replace />;
+
   return children;
 }
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      
-      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="inventory" element={<Inventory />} />
-        <Route path="gym-inventory" element={<GymInventory />} />
-        <Route path="gym-maintenance" element={<GymMaintenance />} />
-        <Route path="rooms" element={<RoomList />} />
-        <Route path="rooms/:roomId" element={<RoomDetail />} />
-        <Route path="room-inventory" element={<RoomInventory />} />
-        <Route path="general-supplies" element={<GeneralSupplies />} />
-        <Route path="withdraw" element={<Withdraw />} />
-        <Route path="restock" element={<Restock />} />
-        <Route path="history" element={<History />} />
-        <Route path="reports" element={<Reports />} />
-        <Route path="settings" element={<Settings />} />
-      </Route>
-    </Routes>
+    <Suspense fallback={<SuspenseFallback />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/initialize" element={<Initialize />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        
+        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          
+          <Route path="dashboard" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+          <Route path="kitchen" element={<ErrorBoundary><Kitchen /></ErrorBoundary>} />
+          <Route path="spa" element={<ErrorBoundary><Spa /></ErrorBoundary>} />
+          <Route path="shop" element={<ErrorBoundary><Shop /></ErrorBoundary>} />
+          <Route path="gym" element={<ErrorBoundary><Gym /></ErrorBoundary>} />
+          <Route path="supplies" element={<ErrorBoundary><Supplies /></ErrorBoundary>} />
+          <Route path="laundry" element={<ErrorBoundary><Laundry /></ErrorBoundary>} />
+          <Route path="accommodation" element={<ErrorBoundary><Accommodation /></ErrorBoundary>} />
+          <Route path="accommodation/:propertyId" element={<ErrorBoundary><Accommodation /></ErrorBoundary>} />
+          <Route path="accommodation/:propertyId/:houseId" element={<ErrorBoundary><Accommodation /></ErrorBoundary>} />
+          <Route path="needs" element={<ErrorBoundary><Needs /></ErrorBoundary>} />
+          <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
+          <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+
+          <Route path="admin/users" element={<ProtectedRoute><ErrorBoundary><UserManagement /></ErrorBoundary></ProtectedRoute>} />
+
+          <Route path="admin" element={<ProtectedRoute adminOnly={true}><AdminLayout /></ProtectedRoute>}>
+            <Route index element={<Navigate to="users" replace />} />
+            <Route path="recycle-bin" element={<ErrorBoundary><RecycleBin /></ErrorBoundary>} />
+            <Route path="logs" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
+            <Route path="system" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
+          </Route>
+        </Route>
+      </Routes>
+    </Suspense>
   );
 }
