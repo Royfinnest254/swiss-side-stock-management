@@ -1,0 +1,62 @@
+name: Build and Deploy to Namecheap cPanel
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the repository code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Set up Node.js environment
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
+
+      # 3. Install frontend dependencies and build
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # 4. Copy frontend build assets to backend public directory
+      - name: Sync Frontend Build to Backend
+        run: |
+          mkdir -p backend/public
+          rm -rf backend/public/*
+          cp -r frontend/dist/* backend/public/
+
+      # 5. Create/Touch Passenger restart file
+      # cPanel Passenger Node.js servers automatically restart the application 
+      # when they detect a change in the tmp/restart.txt file.
+      - name: Create Passenger Restart Trigger
+        run: |
+          mkdir -p backend/tmp
+          echo $(date) > backend/tmp/restart.txt
+
+      # 6. Deploy backend files to Namecheap via SFTP/FTP
+      # We upload the contents of the backend directory because it has the app code and the compiled frontend.
+      - name: Deploy to Namecheap via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          server-dir: ${{ secrets.FTP_TARGET_DIR }} # e.g., /public_html or /swiss-side-backend
+          local-dir: ./backend/
+          # Exclude temporary or dev-only files from uploading
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/scratch/**

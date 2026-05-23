@@ -293,12 +293,6 @@ export default function Accommodation() {
       <Modal isOpen={roomModal.open} onClose={() => setRoomModal({ ...roomModal, open: false })} title={roomModal.mode === 'add' ? 'Register Room' : 'Modify Room'}>
         <form onSubmit={handleSaveRoom} className="space-y-6">
           
-          {!itemForm.is_folder && (
-            <div className="space-y-1.5 mb-6">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Classification (Optional)</label>
-              <input className="input-field" value={itemForm.classification || ''} onChange={e => setItemForm({...itemForm, classification: e.target.value})} placeholder="e.g. Expiration Date, Supplier" />
-            </div>
-          )}
 
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-1.5 col-span-2">

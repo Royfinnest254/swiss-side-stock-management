@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const path = require('path');
 const { requireAuth } = require('../middleware/auth');
 const { sendCustomEmail } = require('../services/email');
 
@@ -470,75 +471,47 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
       const lightGray = '#F9FAFB';
 
       // ==========================================
-      // COVER PAGE (PAGE 1)
+      // COMPACT HEADER (PAGE 1)
       // ==========================================
-      // Large dark banner block that covers almost the full height
-      doc.rect(40, 40, 515, 740).fill(charcoal);
+      const logoPath = path.join(__dirname, '../logo.jpg');
+      try {
+        doc.image(logoPath, 40, 40, { width: 50 });
+      } catch (imgErr) {
+        // Fallback text if logo fails to load
+        doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(14).text('SWISS SIDE', 40, 40);
+      }
 
-      // Top decorative border line in Terracotta
-      doc.rect(40, 40, 515, 12).fill(primaryColor);
+      // Title & Subtitle next to the logo
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(13).text(cleanText('SWISS SIDE TRAINING CAMP'), 105, 42);
+      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(8).text(cleanText('INTERNAL OPERATIONS & INVENTORY STATEMENT'), 105, 57);
 
-      // Big Stylized Title
-      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(38).text(cleanText('SWISS SIDE'), 75, 180, { characterSpacing: 2 });
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(24).text(cleanText('TRAINING CAMP'), 75, 230, { characterSpacing: 1 });
-
-      // Thin terracotta horizontal accent line
-      doc.moveTo(75, 275).lineTo(350, 275).strokeColor(primaryColor).lineWidth(3).stroke();
-
-      // Subtitle
-      doc.fillColor('#E5E7EB').font('Helvetica').fontSize(14).text(cleanText('INTERNAL OPERATIONS & INVENTORY STATEMENT'), 75, 295, { width: 400, lineGap: 6 });
-
-      // Bottom Metadata Card
-      doc.rect(75, 540, 445, 130).fill('#262626');
-      doc.strokeColor(primaryColor).lineWidth(1.5).rect(75, 540, 445, 130).stroke();
-
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(10).text(cleanText('DOCUMENT CONTROLS & AUDIT METRICS'), 95, 558, { characterSpacing: 0.5 });
-      
-      doc.fillColor('#9CA3AF').font('Helvetica').fontSize(9)
-         .text(cleanText('GENERATED DATE:'), 95, 582)
-         .text(cleanText('ISSUED BY:'), 95, 598)
-         .text(cleanText('SECURITY PROFILE:'), 95, 614)
-         .text(cleanText('SYSTEM CORE:'), 95, 630);
-
-      doc.fillColor('#FFFFFF').font('Helvetica-Bold').fontSize(9)
-         .text(cleanText(dateStr), 225, 582)
-         .text(cleanText(requesterName.toUpperCase()), 225, 598)
-         .text(cleanText('RESTRICTED / INTERNAL MANAGEMENT'), 225, 614)
-         .text(cleanText('SWISS SIDE WEB OPERATIONS (ACTIVE)'), 225, 630);
-
-      // Footer brand notice
-      doc.fillColor('#6B7280').font('Helvetica').fontSize(8).text(cleanText('(c) SWISS SIDE TRAINING CAMP - ITEN - KENYA - SECURE OPERATIONS CONTEXT'), 75, 715);
-
-      // Add a page break to start actual report tables
-      doc.addPage();
-
-      // ==========================================
-      // REPORT CONTENT PAGES (PAGE 2+)
-      // ==========================================
-      let y = 60;
-
-      // Header decoration banner for standard pages
-      doc.rect(40, 40, 515, 6).fill(primaryColor);
-      
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(14).text(cleanText('SWISS SIDE TRAINING CAMP'), 40, 55);
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(9).text(cleanText('INTERNAL OPERATIONS & INVENTORY STATEMENT'), 40, 72);
-      
+      // Metadata card on the right
       doc.fillColor(gray).font('Helvetica').fontSize(8)
-         .text(cleanText(`Report Date: ${dateStr}`), 400, 55, { align: 'right', width: 155 })
-         .text(cleanText('Page: 2'), 400, 68, { align: 'right', width: 155 });
+         .text(cleanText(`Report Date: ${dateStr}`), 380, 42, { align: 'right', width: 175 })
+         .text(cleanText(`Issued By: ${requesterName.toUpperCase()}`), 380, 54, { align: 'right', width: 175 })
+         .text(cleanText('Security: Restricted / Internal Operations'), 380, 66, { align: 'right', width: 175 });
 
-      doc.moveTo(40, 88).lineTo(555, 88).strokeColor(borderGray).lineWidth(1).stroke();
+      // Terracotta Divider bar
+      doc.rect(40, 84, 515, 2.5).fill(primaryColor);
 
-      y = 110;
+      let y = 105;
 
       // Helper function to manage page breaks and keep headers active
       function checkPageBreak(neededHeight) {
         if (y + neededHeight > 780) {
           doc.addPage();
           doc.rect(40, 40, 515, 4).fill(primaryColor);
-          doc.fillColor(gray).font('Helvetica').fontSize(8).text(cleanText('Swiss Side Training Camp - Operations Audit Report'), 40, 50);
-          doc.moveTo(40, 65).lineTo(555, 65).strokeColor(borderGray).lineWidth(0.5).stroke();
-          y = 85;
+          
+          try {
+            doc.image(logoPath, 40, 48, { width: 30 });
+            doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(10).text(cleanText('SWISS SIDE TRAINING CAMP'), 80, 52);
+          } catch (imgErr) {
+            doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(10).text(cleanText('SWISS SIDE TRAINING CAMP'), 40, 52);
+          }
+          
+          doc.fillColor(gray).font('Helvetica').fontSize(8).text(cleanText('Operations Statement Audit Report'), 400, 52, { align: 'right', width: 155 });
+          doc.moveTo(40, 82).lineTo(555, 82).strokeColor(borderGray).lineWidth(0.5).stroke();
+          y = 100;
         }
       }
 

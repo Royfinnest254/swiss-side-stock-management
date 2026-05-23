@@ -23,9 +23,11 @@ if (Test-Path $dest) {
         $size = (Get-Item $zip).Length / 1MB
         Write-Host "Archive Size: $('{0:N2}' -f $size) MB" -ForegroundColor Green
         Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue
-    } catch {
+    }
+    catch {
         Write-Host "ERROR: Compression failed: $_" -ForegroundColor Red
     }
-} else {
+}
+else {
     Write-Host "ERROR: Robocopy copy failed" -ForegroundColor Red
 }
