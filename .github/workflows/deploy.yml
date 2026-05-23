@@ -54,6 +54,8 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           server-dir: ${{ secrets.FTP_TARGET_DIR }} # e.g., /public_html or /swiss-side-backend
           local-dir: ./backend/
+          port: 21
+          security: loose
           # Exclude temporary or dev-only files from uploading
           exclude: |
             **/.git*
