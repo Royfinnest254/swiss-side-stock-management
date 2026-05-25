@@ -207,16 +207,7 @@ router.put('/:id', async (req, res) => {
 
 // DELETE /api/needs/:id
 router.delete('/:id', requireAdmin, async (req, res) => {
-  try {
-    await pool.query(
-      'UPDATE needs SET is_active = 0, deleted_by = ?, deleted_at = NOW() WHERE id = ?',
-      [req.user.id, req.params.id]
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error.' });
-  }
+  return res.status(403).json({ error: 'Audit logs cannot be deleted once registered. Use status dismissal instead.' });
 });
 
 module.exports = router;
