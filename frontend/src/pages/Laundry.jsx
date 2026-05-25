@@ -228,6 +228,20 @@ export default function Laundry() {
     }
   };
 
+  const handleDismissMaintenance = async (id) => {
+    if (!window.confirm('Are you sure you want to dismiss this maintenance ticket?')) return;
+    setSubmitting(true);
+    try {
+      await api.patch(`/needs/${id}/status`, { status: 'dismissed' });
+      toast.success('Maintenance ticket dismissed');
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to dismiss ticket');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const maintFilteredItems = items.filter(i => 
     !i.is_folder && 
     i.name.toLowerCase().includes(maintSearch.toLowerCase())
@@ -589,18 +603,29 @@ export default function Laundry() {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`text-[9px] font-black uppercase tracking-[0.2em] px-3 py-1 rounded-lg ${m.status === 'fulfilled' ? 'bg-[#EAF3DE] text-[#3B6D11]' : 'bg-[#FAEEDA] text-[#854F0B]'}`}>{m.status === 'fulfilled' ? 'resolved' : 'pending'}</span>
+                          {m.status === 'fulfilled' ? (
+                            <span className="px-3 py-1 rounded-lg bg-[#EAF3DE] text-[#3B6D11] text-[9px] font-black uppercase tracking-[0.2em]">resolved</span>
+                          ) : m.status === 'dismissed' ? (
+                            <span className="px-3 py-1 rounded-lg bg-red-50 text-[#A32D2D] text-[9px] font-black uppercase tracking-[0.2em]">dismissed</span>
+                          ) : (
+                            <span className="px-3 py-1 rounded-lg bg-[#FAEEDA] text-[#854F0B] text-[9px] font-black uppercase tracking-[0.2em]">pending</span>
+                          )}
                         </td>
                         <td className="text-right px-6 py-4">
                           {m.status === 'pending' && (
-                            <button onClick={() => { 
-                              setResolveModal({ open: true, data: m }); 
-                              setResolutionNotes(''); 
-                              setTechnicianName(''); 
-                              setResolvedAt(new Date().toISOString().split('T')[0]); 
-                            }} className="text-[10px] font-black text-[#A0604E] uppercase tracking-widest hover:underline whitespace-nowrap">
-                              Mark Resolved
-                            </button>
+                            <div className="flex justify-end gap-3 items-center">
+                              <button onClick={() => { 
+                                setResolveModal({ open: true, data: m }); 
+                                setResolutionNotes(''); 
+                                setTechnicianName(''); 
+                                setResolvedAt(new Date().toISOString().split('T')[0]); 
+                              }} className="text-[10px] font-black text-[#A0604E] uppercase tracking-widest hover:underline whitespace-nowrap">
+                                Mark Resolved
+                              </button>
+                              <button onClick={() => handleDismissMaintenance(m.id)} className="text-[10px] font-black text-[#A32D2D] uppercase tracking-widest hover:underline whitespace-nowrap">
+                                Dismiss
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>

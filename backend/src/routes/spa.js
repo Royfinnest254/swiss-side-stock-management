@@ -225,6 +225,30 @@ router.patch('/maintenance/:id/resolve', async (req, res) => {
   }
 });
 
+// PATCH dismiss maintenance
+router.patch('/maintenance/:id/dismiss', async (req, res) => {
+  try {
+    const [maint] = await pool.query('SELECT item_id FROM spa_maintenance WHERE id = ? AND status = "pending"', [req.params.id]);
+    if (!maint.length) {
+      return res.status(404).json({ error: 'Issue not found or already resolved.' });
+    }
+
+    await pool.query(
+      `UPDATE spa_maintenance
+       SET status = 'dismissed', resolved_by = ?, resolved_at = NOW()
+       WHERE id = ?`,
+      [req.user.id, req.params.id]
+    );
+
+    await pool.query('UPDATE spa_items SET status = "ok" WHERE id = ?', [maint[0].item_id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+
 router.get('/transactions', async (req, res) => {
   const { section, action, from_date, to_date, item_id } = req.query;
   let sql = `
