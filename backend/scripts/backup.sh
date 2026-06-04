@@ -11,11 +11,10 @@
 # Strict error handling
 set -e
 
-# --- DEFAULT CONFIGURATION (Overridable via environment variables) ---
-DB_USER="${DB_USER:-your_database_user}"
-DB_PASS="${DB_PASS:-your_database_password}"
-DB_NAME="${DB_NAME:-swiss_side_db}"
-DB_HOST="${DB_HOST:-127.0.0.1}"
+DB_USER="${DB_USER:-swisiuoy_swiss_user}"
+DB_PASS="${DB_PASS:-@Synchro2026}"
+DB_NAME="${DB_NAME:-swisiuoy_swiss_side_db}"
+DB_HOST="${DB_HOST:-localhost}"
 
 # Target backup directory (defaults to a directory in the user's home)
 BACKUP_DIR="${BACKUP_DIR:-$HOME/swissside_backups}"
