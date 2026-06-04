@@ -114,7 +114,38 @@ router.get('/statement-download', async (req, res) => {
       WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
     `);
 
-    const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName);
+    // Fetch all stock items for complete listing
+    const [allStock] = await pool.query(`
+      SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Spa', quantity, unit FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Shop', quantity, unit FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Gym', quantity, unit FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Supplies', quantity, unit FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Laundry', quantity, unit FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+      ORDER BY module, name
+    `);
+
+    // Fetch stock summary per department
+    const [stockSummary] = await pool.query(`
+      SELECT 'Kitchen' as module, COUNT(*) as item_count, COALESCE(SUM(quantity), 0) as total_quantity FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Spa', COUNT(*), COALESCE(SUM(quantity), 0) FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Shop', COUNT(*), COALESCE(SUM(quantity), 0) FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Gym', COUNT(*), COALESCE(SUM(quantity), 0) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Supplies', COUNT(*), COALESCE(SUM(quantity), 0) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Laundry', COUNT(*), COALESCE(SUM(quantity), 0) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+    `);
+
+    const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="Swiss_Side_Operations_Statement.pdf"');
@@ -453,7 +484,7 @@ const PDFDocument = require('pdfkit');
 const { sendDetailedReportWithAttachment } = require('../services/email');
 
 // Helper to generate a clean, emoji-free professional PDF report statement with custom cover page and digital layout
-function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName) {
+function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock = [], stockSummary = []) {
   const cleanText = (str) => String(str || '').replace(/[^\x00-\x7F]/g, "").trim();
   return new Promise((resolve, reject) => {
     try {
@@ -711,6 +742,63 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
       doc.text(cleanText('TOTAL DEPT TRANSACTIONS'), 45, y + 7);
       doc.text(cleanText(`${totalWithdrawalsCount} withdrawals`), 300, y + 7, { width: 120, align: 'right' });
       doc.text(cleanText(`${totalRestocksCount} restocks`), 430, y + 7, { width: 120, align: 'right' });
+      y += 22;
+      y += 12;
+
+      // SECTION 6: STOCK SUMMARY PER DEPARTMENT
+      checkPageBreak(70);
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText("6. STOCK SUMMARY PER DEPARTMENT"), 40, y);
+      y += 20;
+
+      const sumCols = [
+        { title: 'Department Module', key: 'module', x: 45, w: 250 },
+        { title: 'Distinct Items Count', key: 'itemCountStr', x: 300, w: 120, align: 'right' },
+        { title: 'Total Quantity in Stock', key: 'totalQtyStr', x: 430, w: 120, align: 'right' }
+      ];
+      drawTableHeader(y, sumCols);
+      y += 22;
+
+      stockSummary.forEach(row => {
+        checkPageBreak(30);
+        const rowData = {
+          module: `${(row.module || '').toUpperCase()} INVENTORY`,
+          itemCountStr: `${row.item_count || 0} item(s)`,
+          totalQtyStr: parseFloat(row.total_quantity || 0).toLocaleString()
+        };
+        drawTableRow(y, sumCols, rowData);
+        y += 22;
+      });
+      y += 12;
+
+      // SECTION 7: COMPLETE INVENTORY STOCK LIST
+      checkPageBreak(70);
+      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(11).text(cleanText("7. COMPLETE INVENTORY STOCK LIST"), 40, y);
+      y += 20;
+
+      if (!allStock || allStock.length === 0) {
+        doc.fillColor(gray).font('Helvetica').fontSize(9).text(cleanText('No inventory items currently registered in the database.'), 40, y);
+        y += 25;
+      } else {
+        const stockCols = [
+          { title: 'Item Description', key: 'name', x: 45, w: 250 },
+          { title: 'Department Module', key: 'module', x: 300, w: 120 },
+          { title: 'Current Stock Level', key: 'stockStr', x: 430, w: 120, align: 'right' }
+        ];
+        drawTableHeader(y, stockCols);
+        y += 22;
+
+        allStock.forEach(item => {
+          checkPageBreak(30);
+          const rowData = {
+            name: (item.name || '').toUpperCase(),
+            module: `${(item.module || '').toUpperCase()} DEPT`,
+            stockStr: `${item.quantity} ${item.unit || 'pcs'}`
+          };
+          const isCriticalRow = item.quantity === 0;
+          drawTableRow(y, stockCols, rowData, isCriticalRow);
+          y += 22;
+        });
+      }
       
       doc.end();
     } catch (docErr) {
@@ -847,11 +935,42 @@ router.post('/email', async (req, res) => {
       totalRestocksCount += parseInt(row.restocks || 0);
     });
 
+    // Fetch all stock items for complete listing
+    const [allStock] = await pool.query(`
+      SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Spa', quantity, unit FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Shop', quantity, unit FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Gym', quantity, unit FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Supplies', quantity, unit FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT name, 'Laundry', quantity, unit FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+      ORDER BY module, name
+    `);
+
+    // Fetch stock summary per department
+    const [stockSummary] = await pool.query(`
+      SELECT 'Kitchen' as module, COUNT(*) as item_count, COALESCE(SUM(quantity), 0) as total_quantity FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Spa', COUNT(*), COALESCE(SUM(quantity), 0) FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Shop', COUNT(*), COALESCE(SUM(quantity), 0) FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Gym', COUNT(*), COALESCE(SUM(quantity), 0) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Supplies', COUNT(*), COALESCE(SUM(quantity), 0) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      UNION ALL
+      SELECT 'Laundry', COUNT(*), COALESCE(SUM(quantity), 0) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+    `);
+
     const subject = `Swiss Side Inventory Report — ${dateStr} — Requested by ${requesterName}`;
 
     if (isDetailed) {
       // 1. GENERATE DETAILED PDF ATTACHMENT
-      const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName);
+      const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary);
 
       // 2. CONSTRUCT GORGEOUS HTML EMAIL NOTIFYING OF ATTACHMENT (Strictly Emoji-Free!)
       const detailedEmailHtml = `
@@ -1130,6 +1249,27 @@ router.post('/email', async (req, res) => {
                           <td align="right" style="padding:10px;color:#1a1a1a;">${totalRestocksCount} restocks</td>
                         </tr>
                       </tfoot>
+                    </table>
+
+                    <!-- SECTION 7 — STOCK SUMMARY PER DEPARTMENT -->
+                    <h3 style="margin:20px 0 15px;font-size:14px;font-weight:700;text-transform:uppercase;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:5px;">6. Stock Summary Per Department</h3>
+                    <table width="100%" cellpadding="8" cellspacing="0" style="font-size:13px;color:#4a4a4a;border-collapse:collapse;margin-bottom:30px;">
+                      <thead>
+                        <tr style="background-color:#1a1a1a;color:#ffffff;text-align:left;">
+                          <th style="font-weight:700;padding:8px;">Department Module</th>
+                          <th style="font-weight:700;padding:8px;text-align:right;">Distinct Items</th>
+                          <th style="font-weight:700;padding:8px;text-align:right;">Total Stock Qty</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${stockSummary.map(row => `
+                          <tr>
+                            <td style="border-bottom:1px solid #eee;padding:8px;font-weight:700;">${row.module} Inventory</td>
+                            <td align="right" style="border-bottom:1px solid #eee;padding:8px;">${row.item_count} item(s)</td>
+                            <td align="right" style="border-bottom:1px solid #eee;padding:8px;font-weight:bold;">${parseInt(row.total_quantity).toLocaleString()}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
                     </table>
 
                   </td>

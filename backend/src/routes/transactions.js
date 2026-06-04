@@ -41,17 +41,23 @@ router.get('/export', requireAuth, requireAdmin, async (req, res) => {
 
 // POST /api/transactions/withdraw
 router.post('/withdraw', requireAuth, requireStaff, async (req, res) => {
+  const { itemId, itemSource, quantity, notes } = req.body;
+  if (!itemId || !quantity) return res.status(400).json({ error: 'itemId and quantity required.' });
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { itemId, itemSource, quantity, notes } = req.body;
-    if (!itemId || !quantity) return res.status(400).json({ error: 'itemId and quantity required.' });
-
     const table = itemSource === 'general_supplies' ? 'general_supplies' : 'items';
     const [items] = await conn.query(`SELECT * FROM ${table} WHERE id = ?`, [itemId]);
     const item = items[0];
-    if (!item) return res.status(404).json({ error: 'Item not found.' });
-    if (item.quantity < quantity) return res.status(400).json({ error: `Insufficient stock. Only ${item.quantity} ${item.unit} available.` });
+    if (!item) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Item not found.' });
+    }
+    if (item.quantity < quantity) {
+      await conn.rollback();
+      return res.status(400).json({ error: `Insufficient stock. Only ${item.quantity} ${item.unit} available.` });
+    }
 
     await conn.query(`UPDATE ${table} SET quantity = quantity - ? WHERE id = ?`, [quantity, itemId]);
 
@@ -74,16 +80,19 @@ router.post('/withdraw', requireAuth, requireStaff, async (req, res) => {
 
 // POST /api/transactions/restock
 router.post('/restock', requireAuth, requireStaff, async (req, res) => {
+  const { itemId, itemSource, quantity, notes } = req.body;
+  if (!itemId || !quantity) return res.status(400).json({ error: 'itemId and quantity required.' });
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { itemId, itemSource, quantity, notes } = req.body;
-    if (!itemId || !quantity) return res.status(400).json({ error: 'itemId and quantity required.' });
-
     const table = itemSource === 'general_supplies' ? 'general_supplies' : 'items';
     const [items] = await conn.query(`SELECT * FROM ${table} WHERE id = ?`, [itemId]);
     const item = items[0];
-    if (!item) return res.status(404).json({ error: 'Item not found.' });
+    if (!item) {
+      await conn.rollback();
+      return res.status(404).json({ error: 'Item not found.' });
+    }
 
     await conn.query(`UPDATE ${table} SET quantity = quantity + ? WHERE id = ?`, [quantity, itemId]);
 

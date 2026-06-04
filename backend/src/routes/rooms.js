@@ -27,11 +27,12 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 // POST /api/rooms — Create room + auto-populate from room_templates
 router.post('/', requireAuth, requireAdmin, async (req, res) => {
+  const { name, type, status, notes, needs } = req.body;
+  if (!name || !type) return res.status(400).json({ error: 'Name and type required.' });
+
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { name, type, status, notes, needs } = req.body;
-    if (!name || !type) return res.status(400).json({ error: 'Name and type required.' });
 
     const [result] = await conn.query(
       'INSERT INTO rooms (name, type, status, notes, needs) VALUES (?, ?, ?, ?, ?)',
