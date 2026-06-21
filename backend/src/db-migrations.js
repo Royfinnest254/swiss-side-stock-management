@@ -84,9 +84,11 @@ async function runAutoMigrations() {
     // 3. Align other Inventory Tables
     if (await tableExists('kitchen_items')) {
       await addColumnIfMissing('kitchen_items', 'notes', 'TEXT NULL');
+      await addColumnIfMissing('kitchen_items', 'status', "VARCHAR(50) DEFAULT 'ok'");
     }
     if (await tableExists('spa_items')) {
       await addColumnIfMissing('spa_items', 'notes', 'TEXT NULL');
+      await addColumnIfMissing('spa_items', 'status', "VARCHAR(50) DEFAULT 'ok'");
     }
     if (await tableExists('shop_items')) {
       await addColumnIfMissing('shop_items', 'notes', 'TEXT NULL');
