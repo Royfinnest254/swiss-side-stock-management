@@ -107,6 +107,17 @@ async function runAutoMigrations() {
       }
     }
 
+    // 3.5 Align Maintenance Tables (Kitchen, Spa, Gym, Room)
+    const maintTables = ['kitchen_maintenance', 'gym_maintenance', 'spa_maintenance', 'room_maintenance'];
+    for (const table of maintTables) {
+      if (await tableExists(table)) {
+        await addColumnIfMissing(table, 'resolution_notes', 'TEXT NULL');
+        await addColumnIfMissing(table, 'technician_name', 'VARCHAR(150) DEFAULT NULL');
+        await addColumnIfMissing(table, 'resolved_at', 'DATETIME DEFAULT NULL');
+        await addColumnIfMissing(table, 'item_ids', 'JSON DEFAULT NULL');
+      }
+    }
+
     if (await tableExists('shop_transactions')) {
       try {
         await pool.query(
