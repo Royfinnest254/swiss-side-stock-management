@@ -1488,15 +1488,15 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
           [invItemId, suggestedQty, `Automated procurement restock: List #${req.params.id}`, req.user.id]
         );
       } else {
-        // If an item is missing, log a restock_failed transaction.
-        // To bypass foreign key constraints safely, SET FOREIGN_KEY_CHECKS = 0; insert item_id = 0, action = 'restock_failed'; SET FOREIGN_KEY_CHECKS = 1;
-        await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+        // If an item is missing, log a restock_failed warning to audit_logs
         await connection.query(
-          `INSERT INTO \`${target.trans}\` (${target.key}, action, quantity, transaction_date, reason, action_by)
-           VALUES (0, 'restock_failed', ?, CURDATE(), ?, ?)`,
-          [suggestedQty, `Failed restock: Item '${item.name}' not found in ${item.department} inventory`, req.user.id]
+          'INSERT INTO audit_logs (user_id, action, module, details) VALUES (?, "RESTOCK_FAILED", ?, ?)',
+          [
+            req.user.id,
+            item.department || 'Procurement',
+            `Failed restock: Item '${item.name}' (qty: ${suggestedQty}) not found in ${item.department} inventory. List #${req.params.id}`
+          ]
         );
-        await connection.query('SET FOREIGN_KEY_CHECKS = 1');
       }
     }
 

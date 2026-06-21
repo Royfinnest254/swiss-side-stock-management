@@ -16,11 +16,11 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes } = req.body;
+    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification } = req.body;
     if (!name || !unit || !category) return res.status(400).json({ error: 'Name, unit, and category required.' });
     const [result] = await pool.query(
-      'INSERT INTO general_supplies (name, quantity, unit, reorder_level, category, notes) VALUES (?, ?, ?, ?, ?, ?)',
-      [name, quantity || 0, unit, reorder_level || 0, category, notes || null]
+      'INSERT INTO general_supplies (name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, quantity || 0, unit, reorder_level || 0, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null]
     );
     res.json({ success: true, id: result.insertId });
   } catch (err) {
@@ -31,10 +31,10 @@ router.post('/', requireStaff, async (req, res) => {
 
 router.put('/:id', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes } = req.body;
+    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification } = req.body;
     await pool.query(
-      'UPDATE general_supplies SET name = ?, quantity = ?, unit = ?, reorder_level = ?, category = ?, notes = ? WHERE id = ?',
-      [name, quantity, unit, reorder_level, category, notes || null, req.params.id]
+      'UPDATE general_supplies SET name = ?, quantity = ?, unit = ?, reorder_level = ?, category = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ? WHERE id = ?',
+      [name, quantity, unit, reorder_level, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {

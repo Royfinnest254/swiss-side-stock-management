@@ -3,7 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
-import { Package, Plus, Search, Loader2, ArrowUpRight, ArrowDownLeft, Trash2, Clock, History, CheckCircle2, AlertCircle, Edit2, Calendar } from 'lucide-react';
+import { Package, Plus, Search, Loader2, ArrowUpRight, ArrowDownLeft, Trash2, Clock, History, CheckCircle2, AlertCircle, Edit2, Calendar, Folder } from 'lucide-react';
 
 export default function GeneralSupplies() {
   const [items, setItems] = useState([]);
@@ -19,7 +19,7 @@ export default function GeneralSupplies() {
   const [stockModal, setStockModal] = useState({ open: false, type: 'restock', data: null });
   const [deleteModal, setDeleteModal] = useState({ open: false, data: null });
 
-  const [itemForm, setItemForm] = useState({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other' , is_folder: false, classification: '' });
+  const [itemForm, setItemForm] = useState({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other', is_folder: false, classification: '', parent_id: null });
   const [stockQty, setStockQty] = useState('');
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
 
@@ -60,11 +60,22 @@ export default function GeneralSupplies() {
   const handleSaveItem = async (e) => {
     e.preventDefault();
     setSubmitting(true);
+    const payload = {
+      name: itemForm.name,
+      quantity: itemForm.is_folder ? 0 : itemForm.quantity,
+      unit: itemForm.is_folder ? 'folder' : itemForm.unit,
+      reorder_level: itemForm.is_folder ? 0 : itemForm.reorder_level,
+      notes: itemForm.notes || null,
+      category: itemForm.category || 'Other',
+      is_folder: itemForm.is_folder ? 1 : 0,
+      parent_id: itemForm.is_folder ? null : (itemForm.parent_id || null),
+      classification: itemForm.is_folder ? null : (itemForm.classification || null)
+    };
     try {
       if (itemModal.mode === 'add') {
-        await api.post('/general-supplies', itemForm);
+        await api.post('/general-supplies', payload);
       } else {
-        await api.put(`/general-supplies/${itemModal.data.id}`, itemForm);
+        await api.put(`/general-supplies/${itemModal.data.id}`, payload);
       }
       toast.success('Registry updated');
       setItemModal({ open: false, mode: 'add', data: null });
@@ -130,7 +141,10 @@ export default function GeneralSupplies() {
           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-2">Facility Module</span>
           <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">General Supplies</h1>
         </div>
-        <button onClick={() => setItemModal({ open: true, mode: 'add', data: null })} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER SUPPLY</button>
+        <button onClick={() => {
+          setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other', is_folder: false, classification: '', parent_id: null });
+          setItemModal({ open: true, mode: 'add', data: null });
+        }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER SUPPLY</button>
       </div>
 
       <div className="flex items-center gap-3 bg-white border border-[#F3F4F6] rounded-2xl px-6 py-1 max-w-md shadow-sm">
@@ -150,41 +164,99 @@ export default function GeneralSupplies() {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F3F4F6]">
-              {filtered.map(item => (
-                <tr key={item.id} className={`hover:bg-[#F9FAFB] transition-colors ${item.is_folder ? 'border-l-4 border-[#A0604E] bg-orange-50/10' : ''}`}>
-                  
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-[#FDF5F3] text-[#A0604E] rounded-xl flex items-center justify-center shrink-0"><Package size={20} /></div>
-                      <div>
-                        <span className="font-bold text-[#1A1A1A] block uppercase tracking-tight">{item.name}</span>
-                        <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.category} • {item.notes || 'Consumable'}</span>
+              {filtered.map(item => {
+                const parentFolder = item.parent_id ? items.find(i => i.id === item.parent_id) : null;
+                return (
+                  <tr key={item.id} className={`hover:bg-[#F9FAFB] transition-colors ${item.is_folder ? 'border-l-4 border-[#A0604E] bg-orange-50/10' : ''}`}>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-[#FDF5F3] text-[#A0604E] rounded-xl flex items-center justify-center shrink-0">
+                          {item.is_folder ? <Folder size={20} /> : <Package size={20} />}
+                        </div>
+                        <div>
+                          <span className="font-bold text-[#1A1A1A] block uppercase tracking-tight">{item.name}</span>
+                          <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest block mt-0.5">
+                            {parentFolder ? `Folder: ${parentFolder.name}  •  ` : ''}
+                            {item.category} • {item.notes || 'Consumable'}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
-                      <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
-                    </div>
-                  </td>
-                  <td className="hidden md:table-cell px-6 py-4">
-                    {(() => {
-                      const status = getStatus(item);
-                      if (status === 'out') return <span className="px-3 py-1 rounded-lg bg-[#FCEBEB] text-[#A32D2D] text-[9px] font-black uppercase tracking-[0.15em]">Out of Stock</span>;
-                      if (status === 'low') return <span className="px-3 py-1 rounded-lg bg-[#FAEEDA] text-[#854F0B] text-[9px] font-black uppercase tracking-[0.15em]">Low Stock</span>;
-                      return <span className="px-3 py-1 rounded-lg bg-[#EAF3DE] text-[#3B6D11] text-[9px] font-black uppercase tracking-[0.15em]">Available</span>;
-                    })()}
-                  </td>
-                  <td className="text-right px-6 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => setStockModal({ open: true, type: 'restock', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
-                      <button onClick={() => setStockModal({ open: true, type: 'withdraw', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
-                      <button onClick={() => setDeleteModal({ open: true, data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FCEBEB] text-[#A32D2D] rounded-full hover:scale-110 transition-transform"><Trash2 size={16} /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4">
+                      {item.is_folder ? (
+                        <span className="px-3 py-1 rounded-lg bg-orange-100/50 text-[#A0604E] text-[9px] font-black uppercase tracking-[0.15em]">Group Folder</span>
+                      ) : (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
+                          <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4">
+                      {item.is_folder ? (
+                        <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">N/A</span>
+                      ) : (() => {
+                        const status = getStatus(item);
+                        if (status === 'out') return <span className="px-3 py-1 rounded-lg bg-[#FCEBEB] text-[#A32D2D] text-[9px] font-black uppercase tracking-[0.15em]">Out of Stock</span>;
+                        if (status === 'low') return <span className="px-3 py-1 rounded-lg bg-[#FAEEDA] text-[#854F0B] text-[9px] font-black uppercase tracking-[0.15em]">Low Stock</span>;
+                        return <span className="px-3 py-1 rounded-lg bg-[#EAF3DE] text-[#3B6D11] text-[9px] font-black uppercase tracking-[0.15em]">Available</span>;
+                      })()}
+                    </td>
+                    <td className="text-right px-6 py-4">
+                      <div className="flex justify-end gap-2">
+                        {item.is_folder ? (
+                          <button
+                            title="Add Item inside Folder"
+                            onClick={() => {
+                              setItemForm({
+                                name: '',
+                                quantity: 0,
+                                unit: 'pcs',
+                                reorder_level: 5,
+                                notes: '',
+                                category: item.category || 'Other',
+                                is_folder: false,
+                                classification: '',
+                                parent_id: item.id
+                              });
+                              setItemModal({ open: true, mode: 'add', data: null });
+                            }}
+                            className="px-3 py-1.5 flex items-center gap-1 bg-[#FDF5F3] text-[#A0604E] text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#A0604E] hover:text-white transition-all"
+                          >
+                            <Plus size={12} /> ADD ITEM
+                          </button>
+                        ) : (
+                          <>
+                            <button title="Restock" onClick={() => setStockModal({ open: true, type: 'restock', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
+                            <button title="Withdraw" onClick={() => setStockModal({ open: true, type: 'withdraw', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
+                          </>
+                        )}
+                        <button
+                          title="Edit Item"
+                          onClick={() => {
+                            setItemForm({
+                              name: item.name,
+                              quantity: item.quantity || 0,
+                              unit: item.unit || 'pcs',
+                              reorder_level: item.reorder_level ?? 5,
+                              notes: item.notes || '',
+                              category: item.category || 'Other',
+                              is_folder: !!item.is_folder,
+                              classification: item.classification || '',
+                              parent_id: item.parent_id || null
+                            });
+                            setItemModal({ open: true, mode: 'edit', data: item });
+                          }}
+                          className="w-8 h-8 flex items-center justify-center bg-gray-100 text-[#6B7280] rounded-full hover:scale-110 transition-transform"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button title="Delete" onClick={() => setDeleteModal({ open: true, data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FCEBEB] text-[#A32D2D] rounded-full hover:scale-110 transition-transform"><Trash2 size={16} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -235,24 +307,58 @@ export default function GeneralSupplies() {
             <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Item Name</label>
             <input className="input-field" value={itemForm.name} onChange={e => setItemForm({...itemForm, name: e.target.value})} required placeholder="e.g. Cleaning Supplies" />
           </div>
-          
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Category</label>
+            <select className="input-field" value={itemForm.category} onChange={e => setItemForm({...itemForm, category: e.target.value})}>
+              <option value="Cleaning & Hygiene">Cleaning & Hygiene</option>
+              <option value="Office & Stationery">Office & Stationery</option>
+              <option value="Pantry & Guest Supplies">Pantry & Guest Supplies</option>
+              <option value="Maintenance & Safety">Maintenance & Safety</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+
           {!itemForm.is_folder && (
-            <div className="space-y-1.5 mb-6">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Classification (Optional)</label>
-              <input className="input-field" value={itemForm.classification || ''} onChange={e => setItemForm({...itemForm, classification: e.target.value})} placeholder="e.g. Expiration Date, Supplier" />
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Parent Folder (Optional)</label>
+                <select
+                  className="input-field"
+                  value={itemForm.parent_id || ''}
+                  onChange={e => setItemForm({...itemForm, parent_id: e.target.value ? parseInt(e.target.value) : null})}
+                >
+                  <option value="">No parent folder...</option>
+                  {items.filter(i => i.is_folder && i.id !== itemModal.data?.id).map(f => (
+                    <option key={f.id} value={f.id}>{f.name.toUpperCase()}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Classification (Optional)</label>
+                <input className="input-field" value={itemForm.classification || ''} onChange={e => setItemForm({...itemForm, classification: e.target.value})} placeholder="e.g. Expiration Date, Supplier" />
+              </div>
+            </>
           )}
 
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
-              <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, liters, boxes" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
-              <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
-            </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Notes / Description (Optional)</label>
+            <input className="input-field" value={itemForm.notes || ''} onChange={e => setItemForm({...itemForm, notes: e.target.value})} placeholder="e.g. For general staff use" />
           </div>
+
+          {!itemForm.is_folder && (
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
+                <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, liters, boxes" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
+                <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
+              </div>
+            </div>
+          )}
           <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">SAVE LIST</button>
         </form>
       </Modal>

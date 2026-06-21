@@ -97,6 +97,25 @@ async function runAutoMigrations() {
     }
     if (await tableExists('laundry_items')) {
       await addColumnIfMissing('laundry_items', 'notes', 'TEXT NULL');
+      try {
+        await pool.query(
+          "ALTER TABLE `laundry_items` MODIFY COLUMN `category` VARCHAR(100) NOT NULL DEFAULT 'other'"
+        );
+        console.log('[AutoMigration] Converted laundry_items category to VARCHAR(100).');
+      } catch (err) {
+        console.error('[AutoMigration ERROR] Failed to modify laundry_items category:', err.message);
+      }
+    }
+
+    if (await tableExists('shop_transactions')) {
+      try {
+        await pool.query(
+          "ALTER TABLE `shop_transactions` MODIFY COLUMN `action` ENUM('withdraw', 'restock', 'added', 'edited', 'condition_update') NOT NULL"
+        );
+        console.log('[AutoMigration] Aligned ENUM values for "shop_transactions".');
+      } catch (err) {
+        console.error('[AutoMigration ERROR] Failed to align ENUM for "shop_transactions":', err.message);
+      }
     }
 
     // 4. Create and align shopping_lists table
