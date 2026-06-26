@@ -92,6 +92,17 @@ async function runAutoMigrations() {
     }
     if (await tableExists('shop_items')) {
       await addColumnIfMissing('shop_items', 'notes', 'TEXT NULL');
+      try {
+        await pool.query(
+          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE LOWER(`category`) = 'shop supplies'"
+        );
+        await pool.query(
+          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE LOWER(`category`) IN ('shop merchandise', 'shop merchendise')"
+        );
+        console.log('[AutoMigration] Aligned categories in "shop_items".');
+      } catch (err) {
+        console.error('[AutoMigration ERROR] Failed to align categories in "shop_items":', err.message);
+      }
     }
     if (await tableExists('supplies_items')) {
       await addColumnIfMissing('supplies_items', 'category', "VARCHAR(100) DEFAULT 'Other'");
