@@ -94,10 +94,10 @@ async function runAutoMigrations() {
       await addColumnIfMissing('shop_items', 'notes', 'TEXT NULL');
       try {
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE LOWER(`category`) = 'shop supplies'"
+          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE `category` LIKE '%supply%' OR `category` LIKE '%supplies%'"
         );
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE LOWER(`category`) IN ('shop merchandise', 'shop merchendise')"
+          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE `category` LIKE '%merchand%' OR `category` LIKE '%merchend%'"
         );
         console.log('[AutoMigration] Aligned categories in "shop_items".');
       } catch (err) {
