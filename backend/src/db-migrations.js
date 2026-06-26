@@ -94,12 +94,21 @@ async function runAutoMigrations() {
       await addColumnIfMissing('shop_items', 'notes', 'TEXT NULL');
       try {
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE `category` LIKE '%supply%' OR `category` LIKE '%supplies%'"
+          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE `category` LIKE '%supply%' OR `category` LIKE '%supplies%' OR `notes` LIKE '%supply%' OR `notes` LIKE '%supplies%'"
         );
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE `category` LIKE '%merchand%' OR `category` LIKE '%merchend%'"
+          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE `category` LIKE '%merchand%' OR `category` LIKE '%merchend%' OR `notes` LIKE '%merchand%' OR `notes` LIKE '%merchend%'"
         );
-        console.log('[AutoMigration] Aligned categories in "shop_items".');
+        await pool.query(
+          "UPDATE `shop_items` SET `notes` = 'Office Supplies' WHERE `notes` IN ('Shop supplies', 'Shop/Bike supplies')"
+        );
+        await pool.query(
+          "UPDATE `shop_items` SET `notes` = 'Office Supplies / Maintenance tools' WHERE `notes` = 'Shop supplies / Maintenance tools'"
+        );
+        await pool.query(
+          "UPDATE `shop_items` SET `notes` = 'Merchandise' WHERE `notes` IN ('Shop Merchandise', 'Shop merchandise', 'Shop merchendise')"
+        );
+        console.log('[AutoMigration] Aligned categories and notes in "shop_items".');
       } catch (err) {
         console.error('[AutoMigration ERROR] Failed to align categories in "shop_items":', err.message);
       }
