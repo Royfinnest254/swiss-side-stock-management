@@ -223,7 +223,19 @@ export default function Spa() {
   const SPA_CATEGORIES = ['All', 'Product', 'Equipment'];
   const filtered = items
     .filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    .filter(i => categoryFilter === 'All' || (i.category || i.section || 'Product') === categoryFilter);
+    .filter(i => {
+      if (categoryFilter === 'All') return true;
+      const sec = (i.section || '').toLowerCase();
+      const cat = (i.category || '').toLowerCase();
+      const filterLower = categoryFilter.toLowerCase();
+      if (filterLower === 'product') {
+        return sec.startsWith('product') || (cat === 'product' && sec !== 'equipment');
+      }
+      if (filterLower === 'equipment') {
+        return sec.startsWith('equip') || cat.startsWith('equip');
+      }
+      return false;
+    });
 
   const maintFilteredItems = items.filter(i => 
     !i.is_folder && 
@@ -342,7 +354,7 @@ export default function Spa() {
                             <button title="Edit Item" onClick={() => {
                               setItemForm({ 
                                 name: item.name, 
-                                category: item.category || 'Product', 
+                                category: item.section ? (item.section.toLowerCase().includes('equip') ? 'Equipment' : 'Product') : (item.category || 'Product'), 
                                 quantity: item.quantity, 
                                 unit: item.unit || 'pcs', 
                                 reorder_level: item.reorder_level ?? 5, 

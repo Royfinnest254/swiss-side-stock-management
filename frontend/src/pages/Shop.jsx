@@ -270,7 +270,7 @@ export default function Shop() {
   const SHOP_CATEGORIES = ['All', 'Merchandise', 'Office Supplies'];
   const filtered = items
     .filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    .filter(i => categoryFilter === 'All' || (i.category || 'Merchandise') === categoryFilter);
+    .filter(i => categoryFilter === 'All' || (i.category || 'Merchandise').toLowerCase() === categoryFilter.toLowerCase());
 
   if (loading && !items.length && !maintenance.length && !transactions.length) return (
     <div className="h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={32} /></div>

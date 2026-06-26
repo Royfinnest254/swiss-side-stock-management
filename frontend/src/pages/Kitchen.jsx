@@ -222,7 +222,7 @@ export default function Kitchen() {
   const KITCHEN_CATEGORIES = ['All', 'Crockery', 'Electronics', 'Consumables'];
   const filtered = items
     .filter(i => i.name.toLowerCase().includes(search.toLowerCase()))
-    .filter(i => categoryFilter === 'All' || (i.category || 'Consumables') === categoryFilter);
+    .filter(i => categoryFilter === 'All' || (i.category || 'Consumables').toLowerCase() === categoryFilter.toLowerCase());
 
   const maintFilteredItems = items.filter(i => 
     !i.is_folder && 
@@ -353,7 +353,7 @@ export default function Kitchen() {
                                 quantity: item.quantity, 
                                 unit: item.unit || 'pcs', 
                                 reorder_level: item.reorder_level ?? 5, 
-                                category: item.category || 'Consumables', 
+                                category: item.category ? (item.category.charAt(0).toUpperCase() + item.category.slice(1).toLowerCase()) : 'Consumables', 
                                 notes: item.notes || '',
                                 is_folder: !!item.is_folder,
                                 parent_id: item.parent_id || null,
