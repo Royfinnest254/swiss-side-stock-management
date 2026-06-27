@@ -93,12 +93,52 @@ async function runAutoMigrations() {
     if (await tableExists('shop_items')) {
       await addColumnIfMissing('shop_items', 'notes', 'TEXT NULL');
       try {
+        // 1. Modify category column to VARCHAR(100) first to support the new categories
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE `category` LIKE '%supply%' OR `category` LIKE '%supplies%' OR `notes` LIKE '%supply%' OR `notes` LIKE '%supplies%'"
+          "ALTER TABLE `shop_items` MODIFY COLUMN `category` VARCHAR(100) NOT NULL DEFAULT 'Office Supplies'"
         );
+        console.log('[AutoMigration] Converted shop_items category to VARCHAR(100).');
+
+        // 2. Set default category to 'Office Supplies' for empty/invalid categories
         await pool.query(
-          "UPDATE `shop_items` SET `category` = 'Merchandise' WHERE `category` LIKE '%merchand%' OR `category` LIKE '%merchend%' OR `notes` LIKE '%merchand%' OR `notes` LIKE '%merchend%'"
+          "UPDATE `shop_items` SET `category` = 'Office Supplies' WHERE `category` = '' OR `category` IS NULL"
         );
+
+        // 3. Update categories based on item names (Merchandise)
+        await pool.query(`
+          UPDATE \`shop_items\` 
+          SET \`category\` = 'Merchandise' 
+          WHERE \`name\` LIKE '%shirt%' 
+             OR \`name\` LIKE '%logo%' 
+             OR \`name\` LIKE '%shoe%' 
+             OR \`name\` LIKE '%helmet%' 
+             OR \`name\` LIKE '%pedal%'
+        `);
+
+        // 4. Update categories based on item names (Office Supplies)
+        await pool.query(`
+          UPDATE \`shop_items\` 
+          SET \`category\` = 'Office Supplies' 
+          WHERE \`name\` LIKE '%desk%' 
+             OR \`name\` LIKE '%chair%' 
+             OR \`name\` LIKE '%bench%' 
+             OR \`name\` LIKE '%table%' 
+             OR \`name\` LIKE '%hanger%' 
+             OR \`name\` LIKE '%toolbox%' 
+             OR \`name\` LIKE '%oil%' 
+             OR \`name\` LIKE '%grease%' 
+             OR \`name\` LIKE '%lock%' 
+             OR \`name\` LIKE '%bike%' 
+             OR \`name\` LIKE '%rondo%' 
+             OR \`name\` LIKE '%scott%' 
+             OR \`name\` LIKE '%giant%' 
+             OR \`name\` LIKE '%talon%' 
+             OR \`name\` LIKE '%asylum%' 
+             OR \`name\` LIKE '%washing%' 
+             OR \`name\` LIKE '%bicycle%'
+        `);
+
+        // 5. Align notes/legacy descriptions
         await pool.query(
           "UPDATE `shop_items` SET `notes` = 'Office Supplies' WHERE `notes` IN ('Shop supplies', 'Shop/Bike supplies')"
         );
@@ -111,6 +151,19 @@ async function runAutoMigrations() {
         console.log('[AutoMigration] Aligned categories and notes in "shop_items".');
       } catch (err) {
         console.error('[AutoMigration ERROR] Failed to align categories in "shop_items":', err.message);
+      }
+    }
+
+    // Clean up whitespaces from all item names across tables
+    const tablesToTrim = ['kitchen_items', 'spa_items', 'shop_items', 'laundry_items', 'gym_inventory', 'supplies_items'];
+    for (const table of tablesToTrim) {
+      if (await tableExists(table)) {
+        try {
+          await pool.query(`UPDATE \`${table}\` SET \`name\` = TRIM(\`name\`) WHERE \`name\` != TRIM(\`name\`)`);
+          console.log(`[AutoMigration] Trimmed trailing/leading whitespaces from "${table}".`);
+        } catch (err) {
+          console.error(`[AutoMigration ERROR] Failed to trim "${table}":`, err.message);
+        }
       }
     }
     if (await tableExists('supplies_items')) {
