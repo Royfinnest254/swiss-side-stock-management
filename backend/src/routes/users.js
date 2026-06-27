@@ -201,4 +201,54 @@ router.get('/admin-logs', async (req, res) => {
   }
 });
 
+// GET /metrics — Get database health metrics
+router.get('/metrics', async (req, res) => {
+  try {
+    const [
+      [usersStats],
+      [kitchenStats],
+      [spaStats],
+      [shopStats],
+      [gymStats],
+      [suppliesStats],
+      [laundryStats],
+      [accommodationStats],
+      [needsStats]
+    ] = await Promise.all([
+      pool.query(`
+        SELECT 
+          COUNT(*) as users,
+          COALESCE(SUM(CASE WHEN role = 'admin' THEN 1 ELSE 0 END), 0) as admins,
+          COALESCE(SUM(CASE WHEN role = 'staff' THEN 1 ELSE 0 END), 0) as staff
+        FROM users WHERE is_active = 1 AND deleted_at IS NULL
+      `),
+      pool.query('SELECT COUNT(*) as count FROM kitchen_items WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM spa_items WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM shop_items WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM gym_inventory WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM supplies_items WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM laundry_items WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM accommodation_houses WHERE is_active = 1'),
+      pool.query('SELECT COUNT(*) as count FROM needs WHERE is_active = 1')
+    ]);
+
+    res.json({
+      users: usersStats[0].users,
+      admins: usersStats[0].admins,
+      staff: usersStats[0].staff,
+      kitchen: kitchenStats[0].count,
+      spa: spaStats[0].count,
+      shop: shopStats[0].count,
+      gym_prod: gymStats[0].count,
+      supplies: suppliesStats[0].count,
+      laundry: laundryStats[0].count,
+      houses: accommodationStats[0].count,
+      needs: needsStats[0].count
+    });
+  } catch (err) {
+    console.error('[Users Metrics Error]', err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 module.exports = router;
