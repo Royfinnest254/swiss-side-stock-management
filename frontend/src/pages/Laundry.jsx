@@ -270,9 +270,9 @@ export default function Laundry() {
 
   const filtered = items.filter(i => {
     const matchesSearch = i.name.toLowerCase().includes(search.toLowerCase());
-    const cat = i.category || i.type || 'Products & Supplies';
-    if (filterClassification === 'equipment') return matchesSearch && cat === 'Equipment';
-    if (filterClassification === 'product') return matchesSearch && cat !== 'Equipment';
+    const cat = (i.category || i.type || 'Products & Supplies').toLowerCase();
+    if (filterClassification === 'equipment') return matchesSearch && cat.includes('equipment');
+    if (filterClassification === 'product') return matchesSearch && !cat.includes('equipment');
     return matchesSearch;
   });
 
@@ -423,7 +423,7 @@ export default function Laundry() {
                             <button title="Edit Item" onClick={() => {
                               setItemForm({ 
                                 name: item.name, 
-                                type: item.category || 'Products & Supplies',
+                                type: item.category ? (item.category.toLowerCase().includes('equip') ? 'Equipment' : 'Products & Supplies') : 'Products & Supplies',
                                 quantity: item.quantity, 
                                 unit: item.unit || 'pcs', 
                                 reorder_level: item.reorder_level ?? 5, 

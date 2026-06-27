@@ -361,7 +361,7 @@ export default function Supplies() {
                             <button title="Edit Item" onClick={() => {
                               setItemForm({ 
                                 name: item.name, 
-                                type: item.category || 'Products & Supplies',
+                                type: item.category ? (item.category.toLowerCase().includes('equip') ? 'Equipment' : 'Products & Supplies') : 'Products & Supplies',
                                 quantity: item.quantity, 
                                 unit: item.unit || 'pcs', 
                                 reorder_level: item.reorder_level ?? 5, 
