@@ -11,6 +11,8 @@ import {
 export default function SystemMetrics() {
   const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanning, setScanning] = useState(false);
 
   const role = localStorage.getItem('swiss_side_role');
   if (role !== 'admin') return <Navigate to="/dashboard" replace />;
@@ -27,6 +29,24 @@ export default function SystemMetrics() {
       toast.error('Failed to load system metrics');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const runIntegrityScan = async () => {
+    setScanning(true);
+    setScanResult(null);
+    try {
+      const data = await api.get('/users/db-integrity');
+      setScanResult(data);
+      if (data.passed) {
+        toast.success('Database scan passed with 100% integrity!');
+      } else {
+        toast.error(`Scan complete: ${data.errors.length} errors, ${data.warnings.length} warnings.`);
+      }
+    } catch (err) {
+      toast.error('Failed to run database integrity scan');
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -164,6 +184,112 @@ export default function SystemMetrics() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Database Integrity & Catalog Audit Section */}
+      <div className="system-card p-10 space-y-8 bg-white border border-[#F3F4F6] mt-8">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-black text-slate-900 uppercase tracking-tight">Database Catalog & Integrity Scan</h2>
+            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Run diagnostics to verify category spelling, item names, active admins, and data formatting.</p>
+          </div>
+          <button
+            onClick={runIntegrityScan}
+            disabled={scanning}
+            className="px-6 py-3 bg-[#A0604E] text-white hover:bg-[#8F5241] disabled:bg-slate-200 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center justify-center gap-2 h-11 shrink-0"
+          >
+            {scanning ? (
+              <>
+                <Loader2 className="animate-spin" size={14} /> SCANNING DATABASE...
+              </>
+            ) : (
+              'RUN INTEGRITY DIAGNOSTICS'
+            )}
+          </button>
+        </div>
+
+        {scanResult && (
+          <div className="space-y-8 animate-in fade-in duration-500">
+            {/* Status indicator */}
+            <div className={`p-6 rounded-2xl border flex items-center gap-4 ${scanResult.passed ? 'bg-[#EAF3DE] border-[#639922]/20 text-[#3B6D11]' : 'bg-red-50 border-red-200 text-[#E24B4A]'}`}>
+              {scanResult.passed ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />}
+              <div>
+                <h4 className="text-sm font-black uppercase tracking-widest">
+                  Scan Result: {scanResult.passed ? 'PASSED (100% HEALTHY)' : 'ATTENTION REQUIRED'}
+                </h4>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-1">
+                  Checked {scanResult.checksRun} rules • Found {scanResult.errors.length} errors • Found {scanResult.warnings.length} warnings
+                </p>
+              </div>
+            </div>
+
+            {/* Error table */}
+            {scanResult.errors.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-[#E24B4A] uppercase tracking-widest ml-1">Critical Errors ({scanResult.errors.length})</h3>
+                <div className="overflow-x-auto rounded-2xl border border-red-100">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-red-50/50 text-[#E24B4A] text-[10px] font-black uppercase tracking-widest border-b border-red-100">
+                        <th className="px-6 py-4">Table</th>
+                        <th className="px-6 py-4">Item ID</th>
+                        <th className="px-6 py-4">Item Name</th>
+                        <th className="px-6 py-4">Issue Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {scanResult.errors.map((err, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 text-xs font-black uppercase tracking-wider">{err.table}</td>
+                          <td className="px-6 py-4 text-xs font-bold">{err.itemId || 'N/A'}</td>
+                          <td className="px-6 py-4 text-xs font-black text-slate-900">{err.itemName}</td>
+                          <td className="px-6 py-4 text-xs font-bold text-[#E24B4A]">{err.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Warning table */}
+            {scanResult.warnings.length > 0 && (
+              <div className="space-y-4">
+                <h3 className="text-xs font-black text-amber-500 uppercase tracking-widest ml-1">Warnings & Recommendations ({scanResult.warnings.length})</h3>
+                <div className="overflow-x-auto rounded-2xl border border-amber-100">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-amber-50/50 text-[#BA7517] text-[10px] font-black uppercase tracking-widest border-b border-amber-100">
+                        <th className="px-6 py-4">Table</th>
+                        <th className="px-6 py-4">Item ID</th>
+                        <th className="px-6 py-4">Item Name</th>
+                        <th className="px-6 py-4">Recommendation</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {scanResult.warnings.map((wrn, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4 text-xs font-black uppercase tracking-wider">{wrn.table}</td>
+                          <td className="px-6 py-4 text-xs font-bold">{wrn.itemId || 'N/A'}</td>
+                          <td className="px-6 py-4 text-xs font-black text-slate-900">{wrn.itemName}</td>
+                          <td className="px-6 py-4 text-xs font-bold text-[#BA7517]">{wrn.message}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {scanResult.passed && (
+              <div className="py-12 text-center text-[#3B6D11] bg-[#EAF3DE]/30 rounded-2xl border border-[#639922]/10 space-y-3">
+                <CheckCircle2 className="mx-auto text-[#639922]" size={48} />
+                <h3 className="text-sm font-black uppercase tracking-widest">Database is 100% Healthy!</h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">All item names, categories, casing alignments, and administrator access are correct.</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

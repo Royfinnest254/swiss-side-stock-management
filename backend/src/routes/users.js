@@ -201,6 +201,152 @@ router.get('/admin-logs', async (req, res) => {
   }
 });
 
+// GET /db-integrity — Run live database data quality scan
+router.get('/db-integrity', async (req, res) => {
+  const report = {
+    passed: true,
+    warnings: [],
+    errors: [],
+    checksRun: 0
+  };
+
+  function addError(table, itemId, itemName, message) {
+    report.passed = false;
+    report.errors.push({ table, itemId, itemName, message });
+  }
+
+  function addWarning(table, itemId, itemName, message) {
+    report.warnings.push({ table, itemId, itemName, message });
+  }
+
+  try {
+    // 1. Users Check
+    report.checksRun++;
+    const [users] = await pool.query('SELECT id, email, role, is_active FROM users');
+    if (users.length === 0) {
+      addError('users', null, 'N/A', 'No users found in database.');
+    } else {
+      const activeAdmins = users.filter(u => u.role === 'admin' && u.is_active === 1);
+      if (activeAdmins.length === 0) {
+        addError('users', null, 'N/A', 'No active administrator account exists!');
+      }
+    }
+
+    // 2. Shop Inventory Mismatches
+    report.checksRun++;
+    const [shopItems] = await pool.query('SELECT * FROM shop_items');
+    const validShopCategories = ['Office Supplies', 'Merchandise'];
+    for (const item of shopItems) {
+      const name = item.name;
+      const cat = item.category;
+      const notes = item.notes || '';
+      if (name !== name.trim()) {
+        addWarning('shop_items', item.id, name, `Item name has leading/trailing whitespaces: "${name}"`);
+      }
+      if (!validShopCategories.includes(cat)) {
+        addError('shop_items', item.id, name, `Invalid category "${cat}". Must be "Office Supplies" or "Merchandise".`);
+      }
+      const legacyKeywords = ['shop supplies', 'shop merchandise', 'shop/bike supplies', 'merchendise'];
+      const hasLegacyKeyword = legacyKeywords.some(kw => 
+        cat.toLowerCase().includes(kw) || notes.toLowerCase().includes(kw)
+      );
+      if (hasLegacyKeyword && cat !== 'Office Supplies' && cat !== 'Merchandise') {
+        addError('shop_items', item.id, name, `Legacy category/note values found: category="${cat}", notes="${notes}"`);
+      }
+      if (item.quantity < 0) {
+        addError('shop_items', item.id, name, `Negative quantity: ${item.quantity}`);
+      }
+    }
+
+    // 3. Kitchen Inventory Validation
+    report.checksRun++;
+    const [kitchenItems] = await pool.query('SELECT * FROM kitchen_items');
+    const validKitchenCats = ['consumables', 'crockery', 'electronics'];
+    const validConditions = ['good', 'fair', 'needs_attention', 'broken'];
+    for (const item of kitchenItems) {
+      const name = item.name;
+      if (name !== name.trim()) {
+        addWarning('kitchen_items', item.id, name, `Item name has leading/trailing whitespaces: "${name}"`);
+      }
+      if (!validKitchenCats.includes(item.category)) {
+        addError('kitchen_items', item.id, name, `Invalid category "${item.category}". Allowed: ${validKitchenCats.join(', ')}`);
+      }
+      if (item.condition_status && !validConditions.includes(item.condition_status)) {
+        addError('kitchen_items', item.id, name, `Invalid condition status "${item.condition_status}". Allowed: ${validConditions.join(', ')}`);
+      }
+      if (item.quantity < 0) {
+        addError('kitchen_items', item.id, name, `Negative quantity: ${item.quantity}`);
+      }
+    }
+
+    // 4. Spa Inventory Validation
+    report.checksRun++;
+    const [spaItems] = await pool.query('SELECT * FROM spa_items');
+    const validSpaSections = ['equipment', 'products'];
+    for (const item of spaItems) {
+      const name = item.name;
+      if (name !== name.trim()) {
+        addWarning('spa_items', item.id, name, `Item name has leading/trailing whitespaces: "${name}"`);
+      }
+      if (!validSpaSections.includes(item.section)) {
+        addError('spa_items', item.id, name, `Invalid section "${item.section}". Allowed: ${validSpaSections.join(', ')}`);
+      }
+      if (item.quantity < 0) {
+        addError('spa_items', item.id, name, `Negative quantity: ${item.quantity}`);
+      }
+    }
+
+    // 5. Laundry Inventory Validation
+    report.checksRun++;
+    const [laundryItems] = await pool.query('SELECT * FROM laundry_items');
+    for (const item of laundryItems) {
+      const name = item.name;
+      if (name !== name.trim()) {
+        addWarning('laundry_items', item.id, name, `Item name has leading/trailing whitespaces: "${name}"`);
+      }
+      if (item.quantity < 0) {
+        addError('laundry_items', item.id, name, `Negative quantity: ${item.quantity}`);
+      }
+    }
+
+    // 6. Gym Inventory Validation
+    report.checksRun++;
+    const [gymItems] = await pool.query('SELECT * FROM gym_inventory');
+    for (const item of gymItems) {
+      const name = item.name;
+      if (name !== name.trim()) {
+        addWarning('gym_inventory', item.id, name, `Item name has leading/trailing whitespaces: "${name}"`);
+      }
+      if (item.quantity < 0) {
+        addError('gym_inventory', item.id, name, `Negative quantity: ${item.quantity}`);
+      }
+    }
+
+    // 7. Duplicate Name Detection
+    report.checksRun++;
+    const tablesToCheck = ['kitchen_items', 'spa_items', 'shop_items', 'laundry_items', 'gym_inventory', 'supplies_items'];
+    for (const table of tablesToCheck) {
+      const [duplicates] = await pool.query(`
+        SELECT name, COUNT(*) as count 
+        FROM \`${table}\` 
+        WHERE is_active = 1 
+        GROUP BY name 
+        HAVING count > 1
+      `);
+      if (duplicates.length > 0) {
+        for (const dup of duplicates) {
+          addWarning(table, null, dup.name, `Duplicate active items named "${dup.name}" detected (${dup.count} entries).`);
+        }
+      }
+    }
+
+    res.json(report);
+  } catch (err) {
+    console.error('[DB Integrity Test Error]', err);
+    res.status(500).json({ error: 'Server error run integrity test.' });
+  }
+});
+
 // GET /metrics — Get database health metrics
 router.get('/metrics', async (req, res) => {
   try {
