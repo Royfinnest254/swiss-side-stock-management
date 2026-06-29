@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
-import { Home, Plus, Search, Loader2, Users, DoorOpen, Key, Calendar, ArrowRight, UserPlus, UserMinus, Settings, ClipboardList, Wrench, Package, Layers, CheckCircle2, Folder } from 'lucide-react';
+import DeleteConfirmModal from '../components/DeleteConfirmModal';
+import { Home, Plus, Search, Loader2, Users, DoorOpen, Key, Calendar, ArrowRight, UserPlus, UserMinus, Settings, ClipboardList, Wrench, Package, Layers, CheckCircle2, Folder, Trash2 } from 'lucide-react';
 
 export default function Accommodation() {
   const [properties, setProperties] = useState([]);
@@ -26,7 +27,8 @@ export default function Accommodation() {
   const [assignModal, setAssignModal] = useState({ open: false, data: null });
   const [checkoutModal, setCheckoutModal] = useState({ open: false, data: null });
   const [maintModal, setMaintModal] = useState({ open: false, targetName: '', data: null });
-  const [assetModal, setAssetModal] = useState({ open: false, roomId: null, data: null });
+  const [assetModal, setAssetModal] = useState({ open: false, mode: 'add', roomId: null, data: null });
+  const [deleteAssetModal, setDeleteAssetModal] = useState({ open: false, data: null });
   const [assetForm, setAssetForm] = useState({ name: '', quantity: 1, condition_status: 'good', notes: '' });
 
   // Forms
@@ -170,12 +172,31 @@ export default function Accommodation() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.post(`/accommodation/houses/${assetModal.roomId}/items`, assetForm);
-      toast.success('Asset registered to room');
-      setAssetModal({ open: false, roomId: null, data: null });
+      if (assetModal.mode === 'edit') {
+        await api.put(`/accommodation/houses/${assetModal.roomId}/items/${assetModal.data.id}`, assetForm);
+        toast.success('Asset details updated');
+      } else {
+        await api.post(`/accommodation/houses/${assetModal.roomId}/items`, assetForm);
+        toast.success('Asset registered to room');
+      }
+      setAssetModal({ open: false, mode: 'add', roomId: null, data: null });
       fetchData();
     } catch (e) {
-      toast.error('Failed to register asset');
+      toast.error(assetModal.mode === 'edit' ? 'Failed to update asset' : 'Failed to register asset');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteAsset = async () => {
+    setSubmitting(true);
+    try {
+      await api.delete(`/accommodation/items/${deleteAssetModal.data.id}`);
+      toast.success('Asset removed from room');
+      setDeleteAssetModal({ open: false, data: null });
+      fetchData();
+    } catch (err) {
+      toast.error('Failed to remove asset');
     } finally {
       setSubmitting(false);
     }
@@ -255,13 +276,39 @@ export default function Accommodation() {
                           <span className="font-bold text-[#1A1A1A]">{item.name}</span>
                           <span className="text-[9px] text-[#9CA3AF] font-black uppercase block">Qty: {item.quantity} &bull; {item.condition_status.replace('_', ' ')}</span>
                         </div>
-                        <button 
-                          title="Log Maintenance"
-                          onClick={() => setMaintModal({ open: true, targetName: `Room ${room.room_number} - ${item.name}`, data: room })}
-                          className="w-6 h-6 flex items-center justify-center bg-white text-[#9CA3AF] hover:text-[#A0604E] border border-gray-100 rounded-full transition-colors"
-                        >
-                          <Wrench size={10} />
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button 
+                            title="Log Maintenance"
+                            onClick={() => setMaintModal({ open: true, targetName: `Room ${room.room_number} - ${item.name}`, data: room })}
+                            className="w-6 h-6 flex items-center justify-center bg-white text-[#9CA3AF] hover:text-[#A0604E] border border-gray-100 rounded-full transition-colors"
+                          >
+                            <Wrench size={10} />
+                          </button>
+                          <button 
+                            title="Edit Asset"
+                            onClick={() => {
+                              setAssetForm({
+                                name: item.name,
+                                quantity: item.quantity,
+                                condition_status: item.condition_status || 'good',
+                                notes: item.notes || ''
+                              });
+                              setAssetModal({ open: true, mode: 'edit', roomId: room.id, data: item });
+                            }}
+                            className="w-6 h-6 flex items-center justify-center bg-white text-[#9CA3AF] hover:text-[#A0604E] border border-gray-100 rounded-full transition-colors"
+                          >
+                            <Settings size={10} />
+                          </button>
+                          {localStorage.getItem('swiss_side_role') === 'admin' && (
+                            <button 
+                              title="Delete Asset"
+                              onClick={() => setDeleteAssetModal({ open: true, data: item })}
+                              className="w-6 h-6 flex items-center justify-center bg-white text-[#9CA3AF] hover:text-[#A32D2D] border border-gray-100 rounded-full transition-colors"
+                            >
+                              <Trash2 size={10} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -361,8 +408,8 @@ export default function Accommodation() {
         </form>
       </Modal>
 
-      {/* Register Fitted Asset Modal */}
-      <Modal isOpen={assetModal.open} onClose={() => setAssetModal({ open: false, roomId: null, data: null })} title="Register Fitted Asset">
+      {/* Register/Edit Fitted Asset Modal */}
+      <Modal isOpen={assetModal.open} onClose={() => setAssetModal({ open: false, mode: 'add', roomId: null, data: null })} title={assetModal.mode === 'edit' ? 'Edit Fitted Asset' : 'Register Fitted Asset'}>
         <form onSubmit={handleSaveAsset} className="space-y-6">
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Asset Name</label>
@@ -418,6 +465,15 @@ export default function Accommodation() {
           </button>
         </form>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal 
+        isOpen={deleteAssetModal.open}
+        onClose={() => setDeleteAssetModal({ open: false, data: null })}
+        onConfirm={handleDeleteAsset}
+        loading={submitting}
+        title="Remove Asset from Room"
+      />
     </div>
   );
 }
