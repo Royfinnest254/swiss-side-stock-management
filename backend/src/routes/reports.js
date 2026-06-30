@@ -1409,6 +1409,30 @@ router.delete('/shopping-lists/:id/items/:itemId', async (req, res) => {
   }
 });
 
+// PUT /api/reports/shopping-lists/:id/items/:itemId — Edit item on list
+router.put('/shopping-lists/:id/items/:itemId', async (req, res) => {
+  const suggested_quantity = req.body.suggested_quantity !== undefined ? req.body.suggested_quantity : req.body.quantity;
+  const { name, department, unit, price_per_unit, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'Item name is required.' });
+
+  const qty = suggested_quantity || 1;
+  const price = price_per_unit || 0;
+  const total = qty * price;
+
+  try {
+    await pool.query(
+      `UPDATE shopping_list_items 
+       SET name = ?, department = ?, suggested_quantity = ?, unit = ?, price_per_unit = ?, total_cost = ?, notes = ?
+       WHERE list_id = ? AND id = ?`,
+      [name, department || 'General', qty, unit || 'pcs', price, total, notes || null, req.params.id, req.params.itemId]
+    );
+    res.json({ success: true, name, department, suggested_quantity: qty, unit, price_per_unit: price, total_cost: total });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 // PATCH /api/reports/shopping-lists/:id/items/:itemId/purchase
 router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
   const actual_price_paid = req.body.actual_price_paid !== undefined ? req.body.actual_price_paid : req.body.price_paid;

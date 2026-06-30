@@ -3,7 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
-import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download } from 'lucide-react';
+import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download, Edit } from 'lucide-react';
 
 export default function Needs() {
   const [activeTab, setActiveTab] = useState('requisitions'); // 'requisitions' or 'shopping-lists'
@@ -62,6 +62,10 @@ export default function Needs() {
   // Shopping Lists Forms
   const [listForm, setListForm] = useState({ name: '' });
   const [itemForm, setItemForm] = useState({ name: '', department: 'General', quantity: 1, unit: 'pcs', price_per_unit: 0, notes: '' });
+
+  // Edit Item Form
+  const [editItemModal, setEditItemModal] = useState({ open: false, data: null });
+  const [editItemForm, setEditItemForm] = useState({ name: '', department: 'General', quantity: 1, unit: 'pcs', price_per_unit: 0, notes: '' });
 
   useEffect(() => {
     fetchData();
@@ -228,6 +232,42 @@ export default function Needs() {
       selectList(selectedList);
     } catch (err) {
       toast.error('Failed to remove item');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Trigger Edit Item Modal
+  const triggerEditItem = (item) => {
+    setEditItemModal({ open: true, data: item });
+    setEditItemForm({
+      name: item.name,
+      department: item.department || 'General',
+      quantity: item.suggested_quantity || item.quantity || 1,
+      unit: item.unit || 'pcs',
+      price_per_unit: item.price_per_unit || 0,
+      notes: item.notes || ''
+    });
+  };
+
+  // Submit Edited Item
+  const handleEditItem = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      await api.put(`/reports/shopping-lists/${selectedList.id}/items/${editItemModal.data.id}`, {
+        name: editItemForm.name,
+        department: editItemForm.department,
+        suggested_quantity: parseFloat(editItemForm.quantity) || 1,
+        unit: editItemForm.unit,
+        price_per_unit: parseFloat(editItemForm.price_per_unit) || 0,
+        notes: editItemForm.notes
+      });
+      toast.success('Item updated successfully');
+      setEditItemModal({ open: false, data: null });
+      selectList(selectedList); // Refresh list items
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update item');
     } finally {
       setSubmitting(false);
     }
@@ -971,12 +1011,22 @@ export default function Needs() {
                           <td className="py-4 text-right no-print">
                             <div className="flex justify-end gap-2">
                               {!item.purchased ? (
-                                <button 
-                                  onClick={() => setDeleteItemModal({ open: true, data: item })}
-                                  className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-600 hover:text-red-700 rounded-full transition-transform"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
+                                <>
+                                  <button 
+                                    onClick={() => triggerEditItem(item)}
+                                    className="w-8 h-8 flex items-center justify-center bg-amber-50 text-[#BA7517] hover:bg-amber-100 rounded-full transition-transform"
+                                    title="Edit Item"
+                                  >
+                                    <Edit size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={() => setDeleteItemModal({ open: true, data: item })}
+                                    className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-600 hover:text-red-700 rounded-full transition-transform"
+                                    title="Delete Item"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </>
                               ) : (
                                 <span className="text-[9px] font-black uppercase tracking-[0.15em] bg-[#EAF3DE] text-[#3B6D11] px-2.5 py-1 rounded-lg">RESTOCKED</span>
                               )}
@@ -1271,6 +1321,90 @@ export default function Needs() {
 
           <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black flex items-center justify-center gap-2">
             {submitting ? <Loader2 className="animate-spin" size={18} /> : 'Complete Transaction & Restock'}
+          </button>
+        </form>
+      </Modal>
+
+      {/* Edit Shopping List Item Modal */}
+      <Modal isOpen={editItemModal.open} onClose={() => setEditItemModal({ open: false, data: null })} title="Edit Shopping List Item">
+        <form onSubmit={handleEditItem} className="space-y-6">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Item Name</label>
+            <input 
+              className="input-field" 
+              value={editItemForm.name} 
+              onChange={e => setEditItemForm({...editItemForm, name: e.target.value})} 
+              required 
+              placeholder="e.g. Bulk Rice" 
+              autoFocus 
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Department</label>
+              <select 
+                className="input-field cursor-pointer"
+                value={editItemForm.department}
+                onChange={e => setEditItemForm({...editItemForm, department: e.target.value})}
+              >
+                <option value="General">General</option>
+                <option value="Kitchen">Kitchen</option>
+                <option value="Spa">Spa</option>
+                <option value="Gym">Gym</option>
+                <option value="Supplies">Supplies</option>
+                <option value="Laundry">Laundry</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Est. Unit Price (KES)</label>
+              <input 
+                type="number" 
+                className="input-field" 
+                value={editItemForm.price_per_unit} 
+                onChange={e => setEditItemForm({...editItemForm, price_per_unit: parseFloat(e.target.value) || 0})} 
+                min="0"
+                required 
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Quantity</label>
+              <input 
+                type="number" 
+                className="input-field" 
+                value={editItemForm.quantity} 
+                onChange={e => setEditItemForm({...editItemForm, quantity: parseFloat(e.target.value) || 1})} 
+                min="1"
+                required 
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
+              <input 
+                className="input-field" 
+                value={editItemForm.unit} 
+                onChange={e => setEditItemForm({...editItemForm, unit: e.target.value})} 
+                required 
+                placeholder="e.g. kg, box, pcs" 
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Item Notes (Brand preference, details)</label>
+            <input 
+              className="input-field" 
+              value={editItemForm.notes} 
+              onChange={e => setEditItemForm({...editItemForm, notes: e.target.value})} 
+              placeholder="e.g. Hostess brand preferable" 
+            />
+          </div>
+
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black shadow-premium">
+            {submitting ? 'Saving Changes...' : 'Save Changes'}
           </button>
         </form>
       </Modal>
