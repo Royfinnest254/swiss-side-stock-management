@@ -1530,12 +1530,12 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
 // GET /api/reports/shopping-lists/:id/pdf — Download PDF statement of a shopping list
 router.get('/shopping-lists/:id/pdf', async (req, res) => {
   try {
-    const [lists] = await pool.query('SELECT * FROM shopping_lists WHERE id = ? AND is_active = 1', [req.params.id]);
+    const [lists] = await pool.query('SELECT * FROM shopping_lists WHERE id = ?', [req.params.id]);
     if (!lists.length) return res.status(404).json({ error: 'Shopping list not found.' });
     const list = lists[0];
 
     const [items] = await pool.query(
-      'SELECT * FROM shopping_list_items WHERE list_id = ? AND is_active = 1 ORDER BY purchased ASC, department, name',
+      'SELECT * FROM shopping_list_items WHERE list_id = ? ORDER BY purchased ASC, department, name',
       [req.params.id]
     );
 
