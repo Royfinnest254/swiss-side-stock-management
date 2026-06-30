@@ -57,7 +57,7 @@ export default function Reports() {
     const toastId = toast.loading('Compiling operations statement PDF...');
     try {
       const response = await api.get('/reports/statement-download', { responseType: 'blob' });
-      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const blob = response instanceof Blob ? response : new Blob([response.data || response], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
