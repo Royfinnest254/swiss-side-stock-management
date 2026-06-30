@@ -23,7 +23,6 @@ const ADMIN_ITEMS = [
   { label: 'User Management', path: '/admin/users', icon: Users },
   { label: 'Deleted Items', path: '/admin/recycle-bin', icon: Trash2 },
   { label: 'Audit Logs', path: '/admin/logs', icon: ClipboardList },
-  { label: 'System Health', path: '/admin/system', icon: ListChecks },
 ];
 
 export default function Sidebar({ sidebarOpen, setSidebarOpen, isMobile }) {

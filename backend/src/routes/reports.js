@@ -1470,7 +1470,7 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
     if (target) {
       // Find matching item by lowercase name
       const [invItems] = await connection.query(
-        `SELECT id FROM \`${target.items}\` WHERE LOWER(name) = LOWER(?) AND is_active = 1 LIMIT 1`,
+        `SELECT id FROM \`${target.items}\` WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND is_active = 1 LIMIT 1`,
         [item.name]
       );
       

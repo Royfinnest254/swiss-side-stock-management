@@ -20,7 +20,6 @@ const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
 const RecycleBin = lazy(() => import('./pages/admin/RecycleBin'));
 const AuditLogs = lazy(() => import('./pages/admin/AuditLogs'));
-const SystemHealth = lazy(() => import('./pages/admin/SystemHealth'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Initialize = lazy(() => import('./pages/Initialize'));
 const Settings = lazy(() => import('./pages/Settings'));
@@ -76,7 +75,6 @@ export default function App() {
             <Route index element={<Navigate to="users" replace />} />
             <Route path="recycle-bin" element={<ErrorBoundary><RecycleBin /></ErrorBoundary>} />
             <Route path="logs" element={<ErrorBoundary><AuditLogs /></ErrorBoundary>} />
-            <Route path="system" element={<ErrorBoundary><SystemHealth /></ErrorBoundary>} />
           </Route>
         </Route>
       </Routes>
