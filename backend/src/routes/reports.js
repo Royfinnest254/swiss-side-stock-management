@@ -1527,4 +1527,178 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
   }
 });
 
+// GET /api/reports/shopping-lists/:id/pdf — Download PDF statement of a shopping list
+router.get('/shopping-lists/:id/pdf', async (req, res) => {
+  try {
+    const [lists] = await pool.query('SELECT * FROM shopping_lists WHERE id = ? AND is_active = 1', [req.params.id]);
+    if (!lists.length) return res.status(404).json({ error: 'Shopping list not found.' });
+    const list = lists[0];
+
+    const [items] = await pool.query(
+      'SELECT * FROM shopping_list_items WHERE list_id = ? AND is_active = 1 ORDER BY purchased ASC, department, name',
+      [req.params.id]
+    );
+
+    const pdfBuffer = await generateShoppingListPDF(list, items);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    const safeListName = (list.name || 'procurement').replace(/[^a-zA-Z0-9]/g, '_');
+    res.setHeader('Content-Disposition', `attachment; filename="Swiss_Side_Shopping_List_${safeListName}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[Shopping List PDF Error]', err);
+    res.status(500).json({ error: 'Server error generating shopping list PDF.' });
+  }
+});
+
+// Helper to generate a clean, emoji-free professional PDF shopping list
+function generateShoppingListPDF(list, items) {
+  const cleanText = (str) => String(str || '').replace(/[^\x00-\x7F]/g, "").trim();
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ margin: 40, size: 'A4' });
+      const buffers = [];
+      doc.on('data', chunk => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', err => reject(err));
+
+      const primaryColor = '#A0604E'; // Iten Terracotta
+      const charcoal = '#1A1A1A';
+      const gray = '#6B7280';
+      const borderGray = '#E5E7EB';
+      const lightGray = '#F9FAFB';
+
+      // ==========================================
+      // COMPACT HEADER (PAGE 1)
+      // ==========================================
+      const logoPath = path.join(__dirname, '../logo.jpg');
+      try {
+        doc.image(logoPath, 40, 40, { width: 50 });
+      } catch (imgErr) {
+        doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(14).text('SWISS SIDE', 40, 40);
+      }
+
+      // Title & Subtitle next to the logo
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(13).text(cleanText('SWISS SIDE TRAINING CAMP'), 105, 42);
+      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(8).text(cleanText('PROCUREMENT & SHOPPING LIST STATEMENT'), 105, 57);
+
+      // Metadata card on the right
+      const dateStr = new Date(list.created_at || Date.now()).toLocaleDateString('en-GB');
+      doc.fillColor(gray).font('Helvetica').fontSize(8)
+         .text(cleanText(`List Date: ${dateStr}`), 380, 42, { align: 'right', width: 175 })
+         .text(cleanText(`Status: ${list.status.toUpperCase()}`), 380, 54, { align: 'right', width: 175 });
+
+      // Solid line divider
+      doc.strokeColor(primaryColor).lineWidth(1.5).moveTo(40, 105).lineTo(555, 105).stroke();
+
+      // Shopping List Title
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(12).text(cleanText(`SHOPPING LIST: ${list.name.toUpperCase()}`), 40, 120);
+
+      // Summary statistics row
+      const totalItems = items.length;
+      const completedItems = items.filter(i => i.purchased).length;
+      const totalEstPrice = items.reduce((sum, item) => sum + (parseFloat(item.suggested_quantity || item.quantity || 1) * parseFloat(item.price_per_unit || 0)), 0);
+      const totalActualPrice = items.reduce((sum, item) => sum + (item.purchased ? (parseFloat(item.actual_price_paid || item.price_paid || 0) * parseFloat(item.suggested_quantity || item.quantity || 1)) : 0), 0);
+
+      doc.fillColor(gray).font('Helvetica-Bold').fontSize(9).text('SUMMARY:', 40, 145);
+      doc.font('Helvetica').fontSize(8)
+         .text(`Total Items: ${totalItems}   |   Purchased: ${completedItems} / ${totalItems}`, 110, 146)
+         .text(`Estimated Total Budget: KES ${totalEstPrice.toLocaleString()}   |   Actual Spend: KES ${totalActualPrice.toLocaleString()}`, 110, 158);
+
+      // Grid table header
+      let y = 185;
+      doc.fillColor(charcoal).rect(40, y, 515, 20).fill(lightGray);
+      doc.strokeColor(borderGray).lineWidth(0.5).rect(40, y, 515, 20).stroke();
+
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(8);
+      doc.text('ITEM DESCRIPTION', 45, y + 6, { width: 220 });
+      doc.text('DEPARTMENT', 270, y + 6, { width: 70 });
+      doc.text('QTY', 345, y + 6, { width: 45, align: 'right' });
+      doc.text('EST. UNIT', 395, y + 6, { width: 75, align: 'right' });
+      doc.text('TOTAL COST', 475, y + 6, { width: 75, align: 'right' });
+
+      y += 20;
+
+      // Render items
+      items.forEach((item, index) => {
+        const notesText = item.notes ? `Note: ${item.notes}` : '';
+        const nameHeight = doc.heightOfString(cleanText(item.name), { width: 220, fontSize: 8 });
+        const notesHeight = notesText ? doc.heightOfString(cleanText(notesText), { width: 220, fontSize: 7 }) + 2 : 0;
+        const rowHeight = Math.max(24, nameHeight + notesHeight + 8);
+
+        // Check page overflow
+        if (y + rowHeight > 780) {
+          doc.addPage();
+          y = 40;
+          doc.fillColor(charcoal).rect(40, y, 515, 20).fill(lightGray);
+          doc.strokeColor(borderGray).lineWidth(0.5).rect(40, y, 515, 20).stroke();
+
+          doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(8);
+          doc.text('ITEM DESCRIPTION', 45, y + 6, { width: 220 });
+          doc.text('DEPARTMENT', 270, y + 6, { width: 70 });
+          doc.text('QTY', 345, y + 6, { width: 45, align: 'right' });
+          doc.text('EST. UNIT', 395, y + 6, { width: 75, align: 'right' });
+          doc.text('TOTAL COST', 475, y + 6, { width: 75, align: 'right' });
+
+          y += 20;
+        }
+
+        // Alternating background row
+        if (index % 2 === 1) {
+          doc.fillColor('#FAF9F7').rect(40, y, 515, rowHeight).fill();
+        }
+        doc.strokeColor(borderGray).lineWidth(0.5).rect(40, y, 515, rowHeight).stroke();
+
+        // Print item name & checkmark if purchased
+        doc.fillColor(charcoal).font(item.purchased ? 'Helvetica-Oblique' : 'Helvetica-Bold').fontSize(8);
+        const nameY = y + 5;
+        const purchaseStatusStr = item.purchased ? '[OK] ' : '';
+        doc.text(cleanText(`${purchaseStatusStr}${item.name.toUpperCase()}`), 45, nameY, { width: 220 });
+
+        // Print notes below name
+        if (notesText) {
+          doc.fillColor(gray).font('Helvetica-Oblique').fontSize(7).text(cleanText(notesText), 45, nameY + nameHeight + 2, { width: 220 });
+        }
+
+        // Print other columns
+        doc.fillColor(gray).font('Helvetica').fontSize(8);
+        doc.text(cleanText(item.department || 'General'), 270, y + (rowHeight / 2) - 4, { width: 70 });
+        
+        doc.fillColor(charcoal).font('Helvetica-Bold');
+        doc.text(`${item.suggested_quantity || item.quantity} ${item.unit || 'pcs'}`, 345, y + (rowHeight / 2) - 4, { width: 45, align: 'right' });
+        
+        doc.fillColor(gray).font('Helvetica');
+        doc.text(`KES ${parseFloat(item.price_per_unit || 0).toLocaleString()}`, 395, y + (rowHeight / 2) - 4, { width: 75, align: 'right' });
+
+        const itemTotal = item.purchased 
+          ? (parseFloat(item.actual_price_paid || item.price_paid || 0) * parseFloat(item.suggested_quantity || item.quantity || 1))
+          : (parseFloat(item.suggested_quantity || item.quantity || 1) * parseFloat(item.price_per_unit || 0));
+
+        doc.fillColor(item.purchased ? '#059669' : charcoal).font('Helvetica-Bold');
+        doc.text(`KES ${itemTotal.toLocaleString()}`, 475, y + (rowHeight / 2) - 4, { width: 75, align: 'right' });
+
+        y += rowHeight;
+      });
+
+      // Bottom Signature area
+      y += 30;
+      if (y > 720) {
+        doc.addPage();
+        y = 40;
+      }
+
+      doc.strokeColor(borderGray).lineWidth(0.5).moveTo(40, y).lineTo(555, y).stroke();
+      y += 15;
+      
+      doc.fillColor(gray).font('Helvetica').fontSize(8)
+         .text('ISSUED BY: SWISS SIDE PROCUREMENT MANAGER', 40, y)
+         .text('SIGNATURE: __________________________', 380, y, { align: 'right', width: 175 });
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 module.exports = router;

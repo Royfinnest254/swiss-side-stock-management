@@ -3,7 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
-import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer } from 'lucide-react';
+import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download } from 'lucide-react';
 
 export default function Needs() {
   const [activeTab, setActiveTab] = useState('requisitions'); // 'requisitions' or 'shopping-lists'
@@ -191,6 +191,29 @@ export default function Needs() {
       toast.error('Failed to delete list');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Download Shopping List as PDF Statement
+  const handleDownloadListPDF = async () => {
+    if (!selectedList) return;
+    const toastId = toast.loading('Compiling shopping list PDF...');
+    try {
+      const response = await api.get(`/reports/shopping-lists/${selectedList.id}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const safeListName = (selectedList.name || 'procurement').replace(/[^a-zA-Z0-9]/g, '_');
+      link.setAttribute('download', `Swiss_Side_Shopping_List_${safeListName}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success('Shopping list PDF downloaded successfully!', { id: toastId });
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to compile and download shopping list.', { id: toastId });
     }
   };
 
@@ -792,10 +815,10 @@ export default function Needs() {
                   </div>
 
                   <button 
-                    onClick={window.print}
+                    onClick={handleDownloadListPDF}
                     className="h-10 px-4 bg-gray-50 border border-gray-100 rounded-xl text-[10px] font-black uppercase tracking-widest text-[#1A1A1A] flex items-center gap-2 hover:bg-gray-100"
                   >
-                    <Printer size={14} /> Print List
+                    <Download size={14} /> Download PDF
                   </button>
                 </div>
               </div>
@@ -924,7 +947,14 @@ export default function Needs() {
                             ) : (
                               <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
                             )}
-                            <span className={item.purchased ? 'line-through text-slate-400 font-medium' : ''}>{item.name}</span>
+                            <div>
+                              <span className={item.purchased ? 'line-through text-slate-400 font-medium' : ''}>{item.name}</span>
+                              {item.notes && (
+                                <span className="text-[10px] text-slate-500 font-bold block mt-0.5 normal-case tracking-normal">
+                                  Note: {item.notes}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-4 text-[11px] font-black text-slate-400 uppercase tracking-widest">{item.department || 'General'}</td>
                           <td className="py-4">
