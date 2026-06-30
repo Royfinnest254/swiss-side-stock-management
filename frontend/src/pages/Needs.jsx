@@ -453,8 +453,6 @@ export default function Needs() {
   });
 
   const totalItems = listItems.length;
-  const purchasedItems = listItems.filter(i => i.purchased).length;
-  const percent = totalItems > 0 ? Math.round((purchasedItems / totalItems) * 100) : 0;
   const calculateListTotal = () => listItems.reduce((sum, i) => sum + (i.quantity * (i.price_per_unit || 0)), 0);
 
   if (loading && !needs.length) return (
@@ -735,13 +733,26 @@ export default function Needs() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          <span className={`text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${
-                            list.status === 'Completed' ? 'bg-[#EAF3DE] text-[#3B6D11]' : 
-                            list.status === 'Ordered' ? 'bg-orange-50 text-orange-700' :
-                            list.status === 'Archived' ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-700'
-                          }`}>
-                            {list.status}
-                          </span>
+                          {list.status === 'Completed' && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-[#EAF3DE] text-[#3B6D11] px-2.5 py-1 rounded-lg">
+                              <CheckCircle2 size={10} /> FULFILLED
+                            </span>
+                          )}
+                          {list.status === 'Ordered' && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-orange-50 text-orange-700 px-2.5 py-1 rounded-lg">
+                              <Clock size={10} /> ORDERED
+                            </span>
+                          )}
+                          {list.status === 'Draft' && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-blue-50 text-blue-700 px-2.5 py-1 rounded-lg">
+                              <Folder size={10} /> DRAFT
+                            </span>
+                          )}
+                          {list.status === 'Archived' && (
+                            <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-widest bg-gray-100 text-gray-400 px-2.5 py-1 rounded-lg">
+                              <Archive size={10} /> ARCHIVED
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-5">
                           <span className="text-xs font-semibold text-slate-500">
@@ -823,23 +834,7 @@ export default function Needs() {
                 </div>
               </div>
 
-              {/* Progress Panel overlay */}
-              {listItems.length > 0 && (
-                <div className="bg-[#FAEEDA]/30 p-5 rounded-2xl border border-[#FAEEDA]/50 flex items-center justify-between gap-4 no-print">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-[#FAEEDA] text-[#854F0B] rounded-xl flex items-center justify-center font-black text-sm">
-                      {percent}%
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#854F0B] block">Procurement Progress</span>
-                      <span className="text-xs text-slate-500 font-medium">{purchasedItems} of {totalItems} items purchased & restocked</span>
-                    </div>
-                  </div>
-                  <div className="flex-1 max-w-[200px] h-2 bg-[#F3F4F6] rounded-full overflow-hidden">
-                    <div className="h-full bg-[#A0604E] transition-all duration-500" style={{ width: `${percent}%` }} />
-                  </div>
-                </div>
-              )}
+
 
               {/* Add New Item Inline Form */}
               <form onSubmit={handleSaveItem} className="bg-[#FAF9F7] p-6 rounded-[24px] border border-[#E0DBD6] space-y-4 no-print">
@@ -976,24 +971,12 @@ export default function Needs() {
                           <td className="py-4 text-right no-print">
                             <div className="flex justify-end gap-2">
                               {!item.purchased ? (
-                                <>
-                                  <button 
-                                    onClick={() => {
-                                      setPurchaseModal({ open: true, listId: selectedList.id, item: item });
-                                      setPricePaid(item.price_per_unit);
-                                    }}
-                                    title="Log Purchase & Auto-Restock"
-                                    className="h-8 px-3 bg-green-50 hover:bg-green-600 hover:text-white text-green-700 text-[10px] font-black uppercase tracking-widest rounded-lg flex items-center gap-1.5 transition-all"
-                                  >
-                                    <ShoppingBag size={12} /> Buy Item
-                                  </button>
-                                  <button 
-                                    onClick={() => setDeleteItemModal({ open: true, data: item })}
-                                    className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-600 hover:text-red-700 rounded-full transition-transform"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                </>
+                                <button 
+                                  onClick={() => setDeleteItemModal({ open: true, data: item })}
+                                  className="w-8 h-8 flex items-center justify-center bg-red-50 text-red-600 hover:text-red-700 rounded-full transition-transform"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
                               ) : (
                                 <span className="text-[9px] font-black uppercase tracking-[0.15em] bg-[#EAF3DE] text-[#3B6D11] px-2.5 py-1 rounded-lg">RESTOCKED</span>
                               )}
