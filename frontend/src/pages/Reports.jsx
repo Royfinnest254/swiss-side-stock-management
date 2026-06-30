@@ -24,8 +24,6 @@ const ReportStat = ({ label, value, icon: Icon, color, loading }) => (
 );
 
 export default function Reports() {
-  const [activeTab, setActiveTab] = useState('analytics'); // 'analytics' | 'procurement'
-  
   // Analytics State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -33,18 +31,6 @@ export default function Reports() {
   const [analytics, setAnalytics] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [dateRange, setDateRange] = useState('7d');
-
-  // Procurement Shopping Lists State
-  const [lists, setLists] = useState([]);
-  const [selectedListId, setSelectedListId] = useState('');
-  const [listItems, setListItems] = useState([]);
-  const [listsLoading, setListsLoading] = useState(false);
-  const [itemsLoading, setItemsLoading] = useState(false);
-  const [purchaseModalOpen, setPurchaseModalOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [actualPrice, setActualPrice] = useState('0');
-  const [purchaseNotes, setPurchaseNotes] = useState('');
-  const [submittingPurchase, setSubmittingPurchase] = useState(false);
 
   // Email delivery states
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -77,20 +63,6 @@ export default function Reports() {
     fetchData();
   }, [dateRange]);
 
-  useEffect(() => {
-    if (activeTab === 'procurement') {
-      fetchShoppingLists();
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (selectedListId) {
-      fetchListItems(selectedListId);
-    } else {
-      setListItems([]);
-    }
-  }, [selectedListId]);
-
   const fetchData = async () => {
     setLoading(true);
     setError(false);
@@ -112,34 +84,6 @@ export default function Reports() {
     }
   };
 
-  const fetchShoppingLists = async () => {
-    setListsLoading(true);
-    try {
-      const data = await api.get('/reports/shopping-lists');
-      const loaded = Array.isArray(data) ? data : data.results || [];
-      setLists(loaded);
-      if (loaded.length > 0 && !selectedListId) {
-        setSelectedListId(loaded[0].id.toString());
-      }
-    } catch (err) {
-      toast.error('Failed to load shopping lists');
-    } finally {
-      setListsLoading(false);
-    }
-  };
-
-  const fetchListItems = async (listId) => {
-    setItemsLoading(true);
-    try {
-      const data = await api.get(`/reports/shopping-lists/${listId}`);
-      setListItems(data.items || []);
-    } catch (err) {
-      toast.error('Failed to load list details');
-    } finally {
-      setItemsLoading(false);
-    }
-  };
-
   const handleEmailReport = async (e) => {
     e.preventDefault();
     if (!targetEmail) return toast.error('Destination email address required');
@@ -155,48 +99,6 @@ export default function Reports() {
       setSubmitting(false);
     }
   };
-
-  const triggerPurchaseModal = (item) => {
-    setSelectedItem(item);
-    setActualPrice(item.price_per_unit ? item.price_per_unit.toString() : '0');
-    setPurchaseNotes('');
-    setPurchaseModalOpen(true);
-  };
-
-  const handleConfirmPurchase = async (e) => {
-    e.preventDefault();
-    if (!selectedItem || !selectedListId) return;
-
-    setSubmittingPurchase(true);
-    try {
-      const priceToSubmit = actualPrice.trim() === '' ? 0 : parseFloat(actualPrice);
-      await api.patch(`/reports/shopping-lists/${selectedListId}/items/${selectedItem.id}/purchase`, {
-        actual_price_paid: priceToSubmit,
-        notes: purchaseNotes
-      });
-      toast.success(`${selectedItem.name} successfully purchased and restocked!`);
-      setPurchaseModalOpen(false);
-      // Refresh
-      fetchListItems(selectedListId);
-      fetchData(); // Sync metrics back
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to log item purchase');
-    } finally {
-      setSubmittingPurchase(false);
-    }
-  };
-
-  // Procurement Completion Stats
-  const totalItemsCount = listItems.length;
-  const purchasedItemsCount = listItems.filter(i => i.purchased === 1).length;
-  const completionPercentage = totalItemsCount > 0 ? Math.round((purchasedItemsCount / totalItemsCount) * 100) : 0;
-
-  // Visual Dynamic Colored Tracking Bar Gradient based on progress
-  const trackingBarColor = completionPercentage === 100 
-    ? 'from-[#639922] to-[#10B981]' 
-    : completionPercentage > 50 
-    ? 'from-[#BA7517] to-[#639922]' 
-    : 'from-[#A0604E] to-[#BA7517]';
 
   const distributionTotal = analytics?.moduleDistribution?.reduce((acc, d) => acc + d.count, 0) || 0;
   const computedDistribution = (analytics?.moduleDistribution && analytics.moduleDistribution.length > 0) ? analytics.moduleDistribution.map(d => ({
@@ -228,34 +130,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-[#F3F4F6] pb-px gap-8">
-        <button 
-          onClick={() => setActiveTab('analytics')}
-          className={`pb-4 text-[12px] font-black uppercase tracking-widest transition-all relative ${
-            activeTab === 'analytics' ? 'text-[#A0604E]' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          Overview Intelligence
-          {activeTab === 'analytics' && (
-            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#A0604E] rounded-full" />
-          )}
-        </button>
-        <button 
-          onClick={() => setActiveTab('procurement')}
-          className={`pb-4 text-[12px] font-black uppercase tracking-widest transition-all relative flex items-center gap-2 ${
-            activeTab === 'procurement' ? 'text-[#A0604E]' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          Procurement Requisition Checklist
-          {activeTab === 'procurement' && (
-            <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#A0604E] rounded-full" />
-          )}
-        </button>
-      </div>
-
-      {activeTab === 'analytics' && (
-        <div className="space-y-12 animate-in fade-in duration-300">
+      <div className="space-y-12 animate-in fade-in duration-300">
           {error ? (
             <div className="bg-red-50 border border-red-200 rounded-[24px] p-8 text-center max-w-lg mx-auto">
               <Package className="mx-auto text-red-400 mb-4 animate-bounce" size={40} />
@@ -381,203 +256,6 @@ export default function Reports() {
             </>
           )}
         </div>
-      )}
-
-      {activeTab === 'procurement' && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1 max-w-md">
-              <h2 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Active Procurement Shopping Lists</h2>
-              <p className="text-xs text-slate-500 leading-relaxed uppercase tracking-wider">Select a pre-compiled procurement list to process purchases, check items, and auto-restock target departments.</p>
-            </div>
-            
-            <div className="w-full md:w-80">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] block mb-2">Procurement Checklist Directory</label>
-              {listsLoading ? (
-                <div className="h-12 bg-gray-100 rounded-xl flex items-center px-4">
-                  <Loader2 className="animate-spin text-[#A0604E] mr-2" size={14} />
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading checklists...</span>
-                </div>
-              ) : (
-                <select 
-                  className="w-full bg-white border border-[#F3F4F6] rounded-xl px-4 h-12 text-[12px] font-bold uppercase tracking-wider outline-none focus:ring-2 focus:ring-[#A0604E]/20"
-                  value={selectedListId}
-                  onChange={(e) => setSelectedListId(e.target.value)}
-                >
-                  <option value="">-- Choose Shopping List --</option>
-                  {lists.map(list => (
-                    <option key={list.id} value={list.id}>{list.name} ({list.status})</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          {selectedListId ? (
-            <div className="space-y-8">
-              {/* Checklist Progress Tracking panel */}
-              <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-8 shadow-sm">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-[#A0604E]">Procurement Status Tracker</span>
-                    <h3 className="text-2xl font-black text-[#1A1A1A] tracking-tight uppercase mt-1">Checklist Progress Indicators</h3>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Progress Quotient</span>
-                    <div className="text-2xl font-black text-[#1A1A1A] tracking-tighter mt-1">
-                      {purchasedItemsCount} of {totalItemsCount} items purchased ({completionPercentage}%)
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dynamic colored tracking bar */}
-                <div className="h-4 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner p-0.5">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-700 bg-gradient-to-r ${trackingBarColor}`}
-                    style={{ width: `${completionPercentage}%` }}
-                  />
-                </div>
-              </div>
-
-              {/* Items checklist block */}
-              <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-0 overflow-hidden shadow-sm">
-                <div className="p-6 border-b border-[#F3F4F6] bg-gray-50 flex justify-between items-center">
-                  <span className="text-[11px] font-black uppercase tracking-widest text-[#1A1A1A]">Active Procurement Line Items</span>
-                  <List size={16} className="text-slate-400" />
-                </div>
-
-                {itemsLoading ? (
-                  <div className="p-20 text-center space-y-3">
-                    <Loader2 className="animate-spin text-[#A0604E] mx-auto" size={32} />
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">Querying procurement ledger lines...</span>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-[#F3F4F6]">
-                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">State</th>
-                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Line Item Name</th>
-                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Department</th>
-                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Qty / Unit</th>
-                          <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Budget Unit Price</th>
-                          <th className="p-5 text-right text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {listItems.map(item => (
-                          <tr key={item.id} className={`border-b border-[#F3F4F6] hover:bg-gray-50 transition-colors ${
-                            item.purchased === 1 ? 'opacity-60 bg-gray-50/50' : ''
-                          }`}>
-                            <td className="p-5">
-                              {item.purchased === 1 ? (
-                                <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-green-600">
-                                  <CheckSquare size={14} />
-                                </div>
-                              ) : (
-                                <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
-                                  <Clock size={12} />
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-5">
-                              <span className={`font-bold uppercase tracking-tight text-[#1A1A1A] ${
-                                item.purchased === 1 ? 'line-through text-slate-400' : ''
-                              }`}>{item.name}</span>
-                              {item.notes && <span className="block text-[10px] text-slate-400 mt-0.5 italic">{item.notes}</span>}
-                            </td>
-                            <td className="p-5"><span className="text-[11px] font-black uppercase tracking-wider text-[#A0604E]">{item.department || 'General'}</span></td>
-                            <td className="p-5"><span className="font-black text-[#1A1A1A]">{item.suggested_quantity || 1} {item.unit || 'pcs'}</span></td>
-                            <td className="p-5"><span className="font-bold text-[#6B7280]">KES {parseFloat(item.price_per_unit || 0).toLocaleString()}</span></td>
-                            <td className="p-5 text-right">
-                              {item.purchased === 1 ? (
-                                <span className="text-[9px] font-black uppercase tracking-[0.15em] bg-[#EAF3DE] text-[#3B6D11] px-3 py-1.5 rounded-lg inline-flex items-center gap-1">
-                                  <CheckCircle size={10} /> Restocked
-                                </span>
-                              ) : (
-                                <button 
-                                  onClick={() => triggerPurchaseModal(item)}
-                                  className="h-9 px-4 bg-green-50 hover:bg-green-600 hover:text-white text-green-700 text-[10px] font-black uppercase tracking-widest rounded-xl flex items-center gap-1.5 ml-auto transition-all shadow-sm"
-                                >
-                                  <ShoppingBag size={12} /> ✓ Buy Item
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                        {listItems.length === 0 && (
-                          <tr>
-                            <td colSpan={6} className="p-16 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">This checklist currently contains no lines.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-20 text-center shadow-sm">
-              <CheckSquare className="mx-auto text-[#D1D5DB] mb-6 animate-pulse" size={48} />
-              <h3 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Activate Procurement Checklist</h3>
-              <p className="text-slate-500 text-sm mt-2 max-w-sm mx-auto uppercase tracking-wider text-[11px] leading-relaxed">Select any active list from the directory dropdown at the top to display and check off purchased supplies.</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Confirmation Modal for Purchases */}
-      <Modal 
-        isOpen={purchaseModalOpen} 
-        onClose={() => setPurchaseModalOpen(false)} 
-        title="Confirm Procurement Purchase"
-      >
-        <form onSubmit={handleConfirmPurchase} className="space-y-6">
-          <div className="space-y-1 bg-[#F9FAFB] p-5 rounded-2xl border border-[#F3F4F6]">
-            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#9CA3AF]">Line Item Selected</span>
-            <div className="font-bold text-[#1A1A1A] uppercase tracking-tight">{selectedItem?.name}</div>
-            <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider leading-relaxed">
-              Quantity to replenish: <span className="font-bold text-[#1A1A1A]">{selectedItem?.suggested_quantity || 1} {selectedItem?.unit || 'pcs'}</span> into the <span className="font-bold text-[#1A1A1A]">{selectedItem?.department}</span> inventory ledger.
-            </div>
-          </div>
-          
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Actual Price Paid per Unit (KES)</label>
-            <div className="relative">
-              <input 
-                type="number" 
-                step="0.01" 
-                className="input-field pl-12 font-black text-lg h-14" 
-                value={actualPrice} 
-                onChange={e => setActualPrice(e.target.value)} 
-                min="0" 
-                placeholder="0.00" 
-                autoFocus
-              />
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-sm">KES</span>
-            </div>
-            <p className="text-[11px] text-slate-400 font-medium ml-1 uppercase tracking-wider">Defaults to checklist estimates. Enter 0 if items were donated or had no cost.</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Procurement Log Notes / Receipt ID</label>
-            <input 
-              className="input-field h-12 text-xs" 
-              value={purchaseNotes} 
-              onChange={e => setPurchaseNotes(e.target.value)} 
-              placeholder="e.g. Purchased from local market, receipt #1209" 
-            />
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={submittingPurchase} 
-            className="btn-primary w-full h-14 uppercase tracking-widest font-black flex items-center justify-center gap-2"
-          >
-            {submittingPurchase ? <Loader2 className="animate-spin" size={18} /> : 'Complete Transaction & Restock'}
-          </button>
-        </form>
-      </Modal>
 
       {/* Email Report Modal */}
       <Modal isOpen={emailModalOpen} onClose={() => setEmailModalOpen(false)} title="Email Operational Report">
