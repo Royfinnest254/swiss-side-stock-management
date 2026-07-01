@@ -300,58 +300,7 @@ export default function Accommodation() {
                 </p>
               </div>
 
-              {/* Resident / Check-In Status */}
-              <div className="pt-4 border-t border-[#F3F4F6] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest flex items-center gap-1.5">
-                    <Users size={12} /> Resident Info
-                  </span>
-                  {room.status === 'occupied' ? (
-                    <span className="text-[9px] font-black uppercase tracking-wider bg-red-50 text-red-600 px-2 py-0.5 rounded">
-                      Occupied
-                    </span>
-                  ) : room.status === 'cleaning' ? (
-                    <span className="text-[9px] font-black uppercase tracking-wider bg-yellow-50 text-yellow-600 px-2 py-0.5 rounded">
-                      Cleaning
-                    </span>
-                  ) : (
-                    <span className="text-[9px] font-black uppercase tracking-wider bg-green-50 text-green-600 px-2 py-0.5 rounded">
-                      Available
-                    </span>
-                  )}
-                </div>
-                {room.status === 'occupied' ? (
-                  <div className="bg-[#FAF9F9] p-3 rounded-2xl border border-gray-50 space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-[#1A1A1A] block">{room.guest_name}</span>
-                      <button 
-                        title="Edit Resident Details"
-                        onClick={() => {
-                          setEditResidentForm({
-                            guest_name: room.guest_name || '',
-                            check_in_date: room.check_in_date ? room.check_in_date.split('T')[0] : ''
-                          });
-                          setEditResidentModal({ open: true, data: room });
-                        }}
-                        className="text-[#A0604E] hover:opacity-75 transition-opacity text-[10px] font-black uppercase tracking-widest"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                    <span className="text-[9px] text-[#9CA3AF] font-black uppercase block">
-                      In: {room.check_in_date ? new Date(room.check_in_date).toLocaleDateString() : 'N/A'}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="text-center py-3 bg-[#FAFAFA] border border-dashed border-gray-200 rounded-2xl">
-                    {room.status === 'cleaning' ? (
-                      <p className="text-[10px] text-yellow-600 font-bold uppercase tracking-widest">Undergoing cleaning & service</p>
-                    ) : (
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Vacant</p>
-                    )}
-                  </div>
-                )}
-              </div>
+
 
               {/* Nested House Items list inside Room */}
               <div className="pt-4 border-t border-[#F3F4F6] space-y-3">
@@ -419,58 +368,14 @@ export default function Accommodation() {
               </div>
             </div>
 
-            <div className="px-8 py-6 bg-[#F9FAFB] flex flex-wrap gap-2.5 border-t border-[#F3F4F6] justify-between items-center">
-              <div className="flex gap-2 flex-1">
-                {room.status === 'occupied' ? (
-                  <button 
-                    onClick={() => setCheckoutModal({ open: true, data: room })}
-                    className="flex-1 h-11 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 border border-red-100 rounded-xl hover:bg-red-100 transition-all text-[10px] font-black uppercase tracking-widest animate-in fade-in"
-                  >
-                    <UserMinus size={14} /> Checkout
-                  </button>
-                ) : room.status === 'cleaning' ? (
-                  <button 
-                    onClick={async () => {
-                      setSubmitting(true);
-                      try {
-                        await api.put(`/accommodation/rooms/${room.id}`, {
-                          room_number: room.room_number,
-                          room_type: room.room_type,
-                          capacity: room.capacity,
-                          status: 'available',
-                          notes: room.notes
-                        });
-                        toast.success('Room marked as clean and ready');
-                        fetchData();
-                      } catch (err) {
-                        toast.error('Failed to update status');
-                      } finally {
-                        setSubmitting(false);
-                      }
-                    }}
-                    className="flex-1 h-11 flex items-center justify-center gap-1.5 bg-green-50 text-green-600 border border-green-100 rounded-xl hover:bg-green-100 transition-all text-[10px] font-black uppercase tracking-widest animate-in fade-in"
-                  >
-                    <CheckCircle2 size={14} /> Ready
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => {
-                      setAssignForm({ guest_name: '', check_in_date: new Date().toISOString().split('T')[0] });
-                      setAssignModal({ open: true, data: room });
-                    }}
-                    className="flex-1 h-11 flex items-center justify-center gap-1.5 bg-[#FDF5F3] text-[#A0604E] border border-[#F3F4F6] rounded-xl hover:bg-[#A0604E] hover:text-white transition-all text-[10px] font-black uppercase tracking-widest animate-in fade-in"
-                  >
-                    <UserPlus size={14} /> Check In
-                  </button>
-                )}
-                <button 
-                  title="Log Room Repair"
-                  onClick={() => setMaintModal({ open: true, targetName: `Room ${room.room_number} Structure`, data: room })}
-                  className="h-11 px-3 flex items-center justify-center bg-white border border-[#F3F4F6] text-[#6B7280] rounded-xl hover:text-[#A0604E] hover:border-[#A0604E] transition-all"
-                >
-                  <Wrench size={14} />
-                </button>
-              </div>
+            <div className="px-8 py-6 bg-[#F9FAFB] flex gap-2.5 border-t border-[#F3F4F6] justify-between items-center">
+              <button 
+                title="Log Room Repair"
+                onClick={() => setMaintModal({ open: true, targetName: `Room ${room.room_number} Structure`, data: room })}
+                className="flex-1 h-11 flex items-center justify-center gap-1.5 bg-white border border-[#F3F4F6] text-[#6B7280] rounded-xl hover:text-[#A0604E] hover:border-[#A0604E] transition-all text-[10px] font-black uppercase tracking-widest"
+              >
+                <Wrench size={14} /> Log Issue
+              </button>
 
               <div className="flex gap-1.5">
                 <button 
@@ -485,7 +390,7 @@ export default function Accommodation() {
                     });
                     setRoomModal({ open: true, mode: 'edit', data: room });
                   }}
-                  className="w-9 h-9 flex items-center justify-center bg-white border border-gray-150 text-gray-500 rounded-xl hover:text-[#A0604E] hover:border-[#A0604E] transition-all"
+                  className="w-11 h-11 flex items-center justify-center bg-white border border-gray-150 text-gray-500 rounded-xl hover:text-[#A0604E] hover:border-[#A0604E] transition-all"
                 >
                   <Settings size={14} />
                 </button>
@@ -493,7 +398,7 @@ export default function Accommodation() {
                   <button 
                     title="Delete Room"
                     onClick={() => setDeleteRoomModal({ open: true, data: room })}
-                    className="w-9 h-9 flex items-center justify-center bg-red-50 border border-red-100 text-red-500 rounded-xl hover:bg-red-100 hover:text-red-700 transition-all"
+                    className="w-11 h-11 flex items-center justify-center bg-red-50 border border-red-100 text-red-500 rounded-xl hover:bg-red-100 hover:text-red-700 transition-all"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -520,14 +425,6 @@ export default function Accommodation() {
             <div className="space-y-1.5 col-span-2">
               <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Capacity</label>
               <input type="number" className="input-field" value={roomForm.capacity} onChange={e => setRoomForm({...roomForm, capacity: parseInt(e.target.value)})} required />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Current Status</label>
-              <select className="input-field" value={roomForm.status} onChange={e => setRoomForm({...roomForm, status: e.target.value})}>
-                <option value="available">Available</option>
-                <option value="cleaning">Cleaning</option>
-                <option value="occupied">Occupied</option>
-              </select>
             </div>
           </div>
           <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">Confirm</button>
