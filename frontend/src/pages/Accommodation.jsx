@@ -161,7 +161,7 @@ export default function Accommodation() {
         notes: maintForm.description,
         estimated_price: 0
       });
-      toast.success('Maintenance ticket propagated to Requests pipeline');
+      toast.success('Maintenance request added to Requests tab');
       setMaintForm({ description: '' });
       setMaintModal({ open: false, targetName: '', data: null });
     } catch (err) {
