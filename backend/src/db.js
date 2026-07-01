@@ -7,8 +7,8 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   waitForConnections: true,
-  connectionLimit: 2,     // 300 IQ: Lowered connection footprint from 4 to 2 for shared hosting limits
-  maxIdle: 2,             // Ensure idle connections are kept minimal
+  connectionLimit: 6,     // Optimized connection pool limit for responsiveness
+  maxIdle: 4,             // Ensure idle connections are kept minimal but responsive
   idleTimeout: 10000,     // 10s idle connection timeout to free up slots quickly
   queueLimit: 100,
   charset: 'utf8mb4',
