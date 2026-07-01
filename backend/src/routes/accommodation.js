@@ -265,6 +265,11 @@ const ensureRoomColumns = async () => {
     if (!colNames.includes('check_in_date')) {
       await pool.query("ALTER TABLE accommodation_houses ADD COLUMN check_in_date VARCHAR(50) NULL");
     }
+    if (!colNames.includes('is_active')) {
+      await pool.query("ALTER TABLE accommodation_houses ADD COLUMN is_active TINYINT(1) DEFAULT 1");
+    }
+    // Set all existing NULL active statuses to 1 to prevent hidden rooms
+    await pool.query("UPDATE accommodation_houses SET is_active = 1 WHERE is_active IS NULL");
   } catch (err) {
     console.error("Error ensuring room columns exist:", err);
   }
@@ -307,8 +312,8 @@ router.post('/rooms', async (req, res) => {
 
     const [result] = await pool.query(`
       INSERT INTO accommodation_houses 
-        (property_id, name, number, room_number, room_type, capacity, status, notes) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (property_id, name, number, room_number, room_type, capacity, status, notes, is_active) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     `, [
       propId, 
       `Room ${room_number}`, 
@@ -410,6 +415,48 @@ router.post('/rooms/:id/checkout', async (req, res) => {
     `, [req.params.id]);
 
     res.json({ success: true, item: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// PUT /rooms/:id/resident — Edit resident details
+router.put('/rooms/:id/resident', async (req, res) => {
+  const { guest_name, check_in_date } = req.body;
+  if (!guest_name) return res.status(400).json({ error: 'Guest name is required.' });
+  try {
+    await pool.query(`
+      UPDATE accommodation_houses SET
+        guest_name = ?,
+        check_in_date = ?
+      WHERE id = ?
+    `, [guest_name, check_in_date || null, req.params.id]);
+
+    const [rows] = await pool.query(`
+      SELECT h.id, h.property_id, h.name as house_name, p.name as property_name,
+             COALESCE(h.room_number, h.number, '') as room_number,
+             COALESCE(h.room_type, 'Single') as room_type,
+             COALESCE(h.capacity, 1) as capacity,
+             COALESCE(h.status, 'available') as status,
+             h.guest_name, h.check_in_date, h.notes
+      FROM accommodation_houses h
+      LEFT JOIN accommodation_properties p ON h.property_id = p.id
+      WHERE h.id = ?
+    `, [req.params.id]);
+
+    res.json({ success: true, item: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+// DELETE /rooms/:id — Delete/decommission room (Admin only)
+router.delete('/rooms/:id', async (req, res) => {
+  try {
+    await pool.query('UPDATE accommodation_houses SET is_active = 0, deleted_by = ?, deleted_at = NOW() WHERE id = ?', [req.user.id, req.params.id]);
+    res.json({ success: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error.' });

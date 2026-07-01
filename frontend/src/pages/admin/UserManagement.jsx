@@ -22,10 +22,12 @@ export default function UserManagement() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
+  const [editUserModal, setEditUserModal] = useState({ open: false, data: null });
   const [selectedUser, setSelectedUser] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [formData, setFormData] = useState({ email: '' });
+  const [editUserForm, setEditUserForm] = useState({ email: '', display_name: '', phone: '', job_title: '', role: 'staff' });
 
   // Personal Profile States (Used primarily for Staff, but loaded on mount)
   const [me, setMe] = useState(null);
@@ -139,6 +141,33 @@ export default function UserManagement() {
       toast.error(err.response?.data?.error || 'Failed to request password reset link.');
     } finally {
       setRequestingReset(false);
+    }
+  };
+
+  const triggerEditUser = (user) => {
+    setEditUserForm({
+      email: user.email || '',
+      display_name: user.display_name || '',
+      phone: user.phone || '',
+      job_title: user.job_title || '',
+      role: user.role || 'staff'
+    });
+    setEditUserModal({ open: true, data: user });
+  };
+
+  const handleSaveUserDetails = async (e) => {
+    e.preventDefault();
+    if (!editUserModal.data) return;
+    setSubmitting(true);
+    try {
+      await api.put(`/users/${editUserModal.data.id}`, editUserForm);
+      toast.success('User profile updated successfully');
+      setEditUserModal({ open: false, data: null });
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update user details');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -441,20 +470,27 @@ export default function UserManagement() {
                     {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
                   </td>
                   <td className="px-6 py-4 text-right">
-                    {user.role !== 'admin' ? (
-                      <div className="flex justify-end gap-2">
-                        {user.password !== 'PENDING' && (
-                          <button 
-                            onClick={() => {
-                              setSelectedUser(user);
-                              setPromoteModalOpen(true);
-                            }}
-                            className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg hover:scale-110 transition-all"
-                            title="Promote to Administrator"
-                          >
-                            <Crown size={18} />
-                          </button>
-                        )}
+                    <div className="flex justify-end gap-2 items-center">
+                      <button 
+                        onClick={() => triggerEditUser(user)}
+                        className="p-2 hover:bg-gray-100 text-gray-500 rounded-lg hover:scale-110 transition-all"
+                        title="Edit User Details"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      {user.role !== 'admin' && user.password !== 'PENDING' && (
+                        <button 
+                          onClick={() => {
+                            setSelectedUser(user);
+                            setPromoteModalOpen(true);
+                          }}
+                          className="p-2 hover:bg-amber-50 text-amber-600 rounded-lg hover:scale-110 transition-all"
+                          title="Promote to Administrator"
+                        >
+                          <Crown size={18} />
+                        </button>
+                      )}
+                      {user.role !== 'admin' && (
                         <button 
                           onClick={() => startDeleteFlow(user)}
                           className="p-2 hover:bg-red-50 text-[#A0604E] rounded-lg hover:scale-110 transition-all"
@@ -462,10 +498,35 @@ export default function UserManagement() {
                         >
                           <Trash2 size={18} />
                         </button>
-                      </div>
-                    ) : (
-                      <span className="text-[9px] font-black text-[#D1D5DB] uppercase tracking-widest mr-4 select-none">Protected</span>
-                    )}
+                      )}
+                      {user.role === 'admin' && user.id !== me?.id && (
+                        <button 
+                          onClick={async () => {
+                            if (!window.confirm(`Are you sure you want to demote ${user.email} to Staff?`)) return;
+                            setSubmitting(true);
+                            try {
+                              await api.put(`/users/${user.id}`, {
+                                email: user.email,
+                                display_name: user.display_name,
+                                phone: user.phone,
+                                job_title: user.job_title,
+                                role: 'staff'
+                              });
+                              toast.success('User demoted to staff');
+                              fetchUsers();
+                            } catch (err) {
+                              toast.error('Failed to demote user');
+                            } finally {
+                              setSubmitting(false);
+                            }
+                          }}
+                          className="p-2 hover:bg-red-50 text-red-500 rounded-lg hover:scale-110 transition-all"
+                          title="Demote to Staff"
+                        >
+                          <Shield size={16} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -614,6 +675,38 @@ export default function UserManagement() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit User Details Modal */}
+      <Modal isOpen={editUserModal.open} onClose={() => setEditUserModal({ open: false, data: null })} title="Edit User Details">
+        <form onSubmit={handleSaveUserDetails} className="space-y-6">
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Display Name</label>
+            <input className="input-field" value={editUserForm.display_name} onChange={e => setEditUserForm({...editUserForm, display_name: e.target.value})} required placeholder="Full name of staff member..." autoFocus />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Email Address</label>
+            <input type="email" className="input-field" value={editUserForm.email} onChange={e => setEditUserForm({...editUserForm, email: e.target.value})} required />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Phone Number</label>
+            <input className="input-field" value={editUserForm.phone} onChange={e => setEditUserForm({...editUserForm, phone: e.target.value})} placeholder="e.g. +254 700 000 000" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Job Title / Designation</label>
+            <input className="input-field" value={editUserForm.job_title} onChange={e => setEditUserForm({...editUserForm, job_title: e.target.value})} placeholder="e.g. Laundry Head or Spa Manager" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] mb-2 block">Access Level / Role</label>
+            <select className="input-field" value={editUserForm.role} onChange={e => setEditUserForm({...editUserForm, role: e.target.value})}>
+              <option value="staff">Staff Member</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black flex items-center justify-center gap-2">
+            {submitting ? <Loader2 className="animate-spin" size={18} /> : 'Save User Details'}
+          </button>
+        </form>
       </Modal>
     </div>
   );

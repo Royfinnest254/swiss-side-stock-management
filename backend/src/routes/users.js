@@ -158,6 +158,41 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// PUT /:id — Edit user details (Admin only)
+router.put('/:id', async (req, res) => {
+  const targetId = req.params.id;
+  const { email, display_name, phone, job_title, role } = req.body;
+
+  if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+  try {
+    const [targets] = await pool.query('SELECT * FROM users WHERE id = ?', [targetId]);
+    const target = targets[0];
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+
+    // Update details
+    await pool.query(
+      `UPDATE users 
+       SET email = ?, display_name = ?, phone = ?, job_title = ?, role = ? 
+       WHERE id = ?`,
+      [email, display_name || null, phone || null, job_title || null, role || 'staff', targetId]
+    );
+
+    // Log action
+    await pool.query(
+      'INSERT INTO audit_logs (user_id, action, module, details) VALUES (?, "EDIT_USER", "ADMIN", ?)',
+      [req.user.id, `Modified user account ${target.email}`]
+    );
+
+    clearUserCache(targetId);
+    res.json({ success: true });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already exists.' });
+    console.error(err);
+    res.status(500).json({ error: 'Server error.' });
+  }
+});
+
 // PATCH /:id/promote — Promote staff user to admin role
 router.patch('/:id/promote', async (req, res) => {
   const targetId = req.params.id;

@@ -295,6 +295,21 @@ export default function Needs() {
     }
   };
 
+  // Trigger Edit Requisition Modal
+  const triggerEditNeed = (need) => {
+    setNeedForm({
+      request_type: need.request_type || 'Purchase',
+      item: need.item || '',
+      quantity: need.quantity || 1,
+      unit: need.unit || 'pcs',
+      department: need.department || 'General',
+      urgency: need.urgency || 'Medium',
+      estimated_price: need.estimated_price || 0,
+      notes: need.notes || ''
+    });
+    setNeedModal({ open: true, mode: 'edit', data: need });
+  };
+
   // Requisitions Handlers
   const handleSaveNeed = async (e) => {
     e.preventDefault();
@@ -695,6 +710,15 @@ export default function Needs() {
                           >
                             <ShoppingCart size={13} />
                           </button>
+                          {(need.status === 'pending' || isAdmin) && (
+                            <button 
+                              onClick={() => triggerEditNeed(need)} 
+                              title="Edit Requisition Details"
+                              className="h-8 w-8 bg-amber-50 hover:bg-amber-100 text-[#BA7517] rounded-lg flex items-center justify-center transition-all shrink-0"
+                            >
+                              <Edit size={13} />
+                            </button>
+                          )}
                           {isAdmin && (
                             <>
                               {need.status === 'pending' && (
