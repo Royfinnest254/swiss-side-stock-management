@@ -628,6 +628,7 @@ export default function Needs() {
                     <option value="Gym">Gym</option>
                     <option value="Supplies">Supplies</option>
                     <option value="Laundry">Laundry</option>
+                    <option value="Accommodation">Accommodation</option>
                   </select>
                 </div>
 
@@ -928,6 +929,7 @@ export default function Needs() {
                       <option value="Gym">Gym</option>
                       <option value="Supplies">Supplies</option>
                       <option value="Laundry">Laundry</option>
+                      <option value="Accommodation">Accommodation</option>
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -1125,6 +1127,7 @@ export default function Needs() {
                 <option>Gym</option>
                 <option>Supplies</option>
                 <option>Laundry</option>
+                <option>Accommodation</option>
               </select>
             </div>
 
@@ -1378,6 +1381,7 @@ export default function Needs() {
                 <option value="Gym">Gym</option>
                 <option value="Supplies">Supplies</option>
                 <option value="Laundry">Laundry</option>
+                <option value="Accommodation">Accommodation</option>
               </select>
             </div>
             <div className="space-y-1.5">
