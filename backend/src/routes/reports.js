@@ -1436,7 +1436,7 @@ router.put('/shopping-lists/:id/items/:itemId', async (req, res) => {
 // PATCH /api/reports/shopping-lists/:id/items/:itemId/purchase
 router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
   const actual_price_paid = req.body.actual_price_paid !== undefined ? req.body.actual_price_paid : req.body.price_paid;
-  const { notes } = req.body;
+  const { notes, transaction_date } = req.body;
   
   let actualPricePaid = actual_price_paid;
   if (actualPricePaid === undefined) {
@@ -1445,6 +1445,15 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
   const actualPrice = parseFloat(actualPricePaid);
   if (isNaN(actualPrice) || actualPrice < 0) {
     return res.status(400).json({ error: 'Valid actual price paid is required (must be >= 0).' });
+  }
+
+  if (transaction_date) {
+    const selectedDate = new Date(transaction_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate > today) {
+      return res.status(400).json({ error: 'Purchase/Restock date cannot be in the future.' });
+    }
   }
 
   const connection = await pool.getConnection();
@@ -1458,6 +1467,7 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
     );
     if (!items.length) {
       await connection.rollback();
+      connection.release();
       return res.status(404).json({ error: 'Procurement item not found.' });
     }
     const item = items[0];
@@ -1470,12 +1480,12 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
       `UPDATE shopping_list_items
        SET purchased = 1,
            purchased_by = ?,
-           purchased_at = NOW(),
+           purchased_at = COALESCE(?, NOW()),
            actual_price_paid = ?,
            total_cost = ?,
            notes = COALESCE(?, notes)
        WHERE id = ?`,
-      [req.user.id, actualPrice, totalPaid, notes || null, item.id]
+      [req.user.id, transaction_date || null, actualPrice, totalPaid, notes || null, item.id]
     );
 
     // 3. Automate replenishment in respective department
@@ -1508,8 +1518,8 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
         // Log transaction record
         await connection.query(
           `INSERT INTO \`${target.trans}\` (${target.key}, action, quantity, transaction_date, reason, action_by)
-           VALUES (?, 'restock', ?, CURDATE(), ?, ?)`,
-          [invItemId, suggestedQty, `Automated procurement restock: List #${req.params.id}`, req.user.id]
+           VALUES (?, 'restock', ?, COALESCE(?, CURDATE()), ?, ?)`,
+          [invItemId, suggestedQty, transaction_date || null, `Automated procurement restock: List #${req.params.id}`, req.user.id]
         );
       } else {
         // If an item is missing, log a restock_failed warning to audit_logs

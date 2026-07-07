@@ -85,6 +85,13 @@ router.post('/restock', requireStaff, async (req, res) => {
   const qty = parseFloat(quantity);
   if (!item_id || isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid ID/quantity.' });
 
+  if (transaction_date) {
+    const selectedDate = new Date(transaction_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate > today) return res.status(400).json({ error: 'Restock date cannot be in the future.' });
+  }
+
   try {
     await pool.query('UPDATE general_supplies SET quantity = quantity + ? WHERE id = ?', [qty, item_id]);
     await pool.query(

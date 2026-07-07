@@ -80,8 +80,15 @@ router.post('/withdraw', requireAuth, requireStaff, async (req, res) => {
 
 // POST /api/transactions/restock
 router.post('/restock', requireAuth, requireStaff, async (req, res) => {
-  const { itemId, itemSource, quantity, notes } = req.body;
+  const { itemId, itemSource, quantity, notes, transaction_date } = req.body;
   if (!itemId || !quantity) return res.status(400).json({ error: 'itemId and quantity required.' });
+
+  if (transaction_date) {
+    const selectedDate = new Date(transaction_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate > today) return res.status(400).json({ error: 'Restock date cannot be in the future.' });
+  }
 
   const conn = await pool.getConnection();
   try {
@@ -91,6 +98,7 @@ router.post('/restock', requireAuth, requireStaff, async (req, res) => {
     const item = items[0];
     if (!item) {
       await conn.rollback();
+      conn.release();
       return res.status(404).json({ error: 'Item not found.' });
     }
 
@@ -98,8 +106,8 @@ router.post('/restock', requireAuth, requireStaff, async (req, res) => {
 
     const person = (req.user.displayName || req.user.email).slice(0, 100);
     await conn.query(
-      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [itemId, table, item.name, 'RESTOCK', quantity, item.unit, person, notes?.slice(0, 500) || null]
+      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, NOW()))',
+      [itemId, table, item.name, 'RESTOCK', quantity, item.unit, person, notes?.slice(0, 500) || null, transaction_date || null]
     );
 
     await conn.commit();

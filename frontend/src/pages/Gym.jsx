@@ -37,8 +37,8 @@ export default function Gym() {
     classification: ''
   });
   
-  const [stockQty, setStockQty] = useState('');
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
+  const [customDateEnabled, setCustomDateEnabled] = useState(false);
   const [maintForm, setMaintForm] = useState({ description: '' });
   const [maintSearch, setMaintSearch] = useState('');
   const [selectedMaintItemIds, setSelectedMaintItemIds] = useState(new Set());
@@ -122,7 +122,7 @@ export default function Gym() {
         item_id: stockModal.data.id, 
         action: isRestock ? 'restock' : 'withdraw',
         quantity: parseInt(stockQty),
-        transaction_date: isRestock ? stockDate : undefined
+        transaction_date: (isRestock && customDateEnabled) ? stockDate : undefined
       });
       
       if (response.item) {
@@ -137,6 +137,7 @@ export default function Gym() {
       setStockModal({ open: false, type: 'restock', data: null });
       setStockQty('');
       setStockDate(new Date().toISOString().split('T')[0]);
+      setCustomDateEnabled(false);
     } catch (err) { 
       toast.error(err.response?.data?.error || 'Update failed'); 
     } finally { 
@@ -603,7 +604,7 @@ export default function Gym() {
       )}
 
       {/* MODALS */}
-      <Modal isOpen={stockModal.open} onClose={() => setStockModal({ open: false, type: 'restock', data: null })} title={`${stockModal.type === 'restock' ? 'Restock' : 'Withdraw'} - ${stockModal.data?.name}`}>
+      <Modal isOpen={stockModal.open} onClose={() => { setStockModal({ open: false, type: 'restock', data: null }); setCustomDateEnabled(false); }} title={`${stockModal.type === 'restock' ? 'Restock' : 'Withdraw'} - ${stockModal.data?.name}`}>
         <form onSubmit={handleStockUpdate} className="space-y-6 py-4">
           <div className="text-center mb-8">
             <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest block mb-2">Current Balance</span>
@@ -617,15 +618,29 @@ export default function Gym() {
             </div>
 
             {stockModal.type === 'restock' ? (
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Restock Date</label>
-                <div className="relative">
-                  <input type="date" className="input-field h-14 pl-12" value={stockDate} onChange={e => setStockDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
-                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">Transaction Date</label>
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input type="checkbox" className="rounded border-slate-300 text-[#A0604E] focus:ring-[#A0604E] h-3.5 w-3.5" checked={customDateEnabled} onChange={e => setCustomDateEnabled(e.target.checked)} />
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Edit Date</span>
+                  </label>
                 </div>
+                
+                {customDateEnabled ? (
+                  <div className="relative animate-in fade-in zoom-in-95 duration-150">
+                    <input type="date" className="input-field h-14 pl-12" value={stockDate} onChange={e => setStockDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
+                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
+                  </div>
+                ) : (
+                  <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
+                    <Clock className="text-[#9CA3AF]" size={18} />
+                    <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3">
+              <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
                 <Clock className="text-[#9CA3AF]" size={18} />
                 <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
               </div>

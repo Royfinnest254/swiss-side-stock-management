@@ -3,7 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
-import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download, Edit } from 'lucide-react';
+import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download, Edit, Calendar } from 'lucide-react';
 
 export default function Needs() {
   const [activeTab, setActiveTab] = useState('requisitions'); // 'requisitions' or 'shopping-lists'
@@ -58,6 +58,8 @@ export default function Needs() {
   const [purchaseModal, setPurchaseModal] = useState({ open: false, listId: null, item: null });
   const [pricePaid, setPricePaid] = useState('');
   const [purchaseNotes, setPurchaseNotes] = useState('');
+  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [customDateEnabled, setCustomDateEnabled] = useState(false);
 
   // Shopping Lists Forms
   const [listForm, setListForm] = useState({ name: '' });
@@ -281,12 +283,15 @@ export default function Needs() {
     try {
       await api.patch(`/reports/shopping-lists/${purchaseModal.listId}/items/${purchaseModal.item.id}/purchase`, {
         actual_price_paid: parseFloat(pricePaid),
-        notes: purchaseNotes
+        notes: purchaseNotes,
+        transaction_date: customDateEnabled ? purchaseDate : undefined
       });
       toast.success(`${purchaseModal.item.name} checked off & restocked successfully!`);
       setPurchaseModal({ open: false, listId: null, item: null });
       setPricePaid('');
       setPurchaseNotes('');
+      setPurchaseDate(new Date().toISOString().split('T')[0]);
+      setCustomDateEnabled(false);
       selectList(selectedList); // Refresh
     } catch (err) {
       toast.error(err.response?.data?.error || 'Purchase logging failed');
@@ -1006,7 +1011,19 @@ export default function Needs() {
                             {item.purchased ? (
                               <CheckCircle className="text-green-600 shrink-0" size={16} />
                             ) : (
-                              <div className="w-4 h-4 rounded-full border-2 border-slate-300 shrink-0" />
+                              <button
+                                onClick={() => {
+                                  setPurchaseModal({ open: true, listId: selectedList.id, item });
+                                  setPricePaid(item.price_per_unit || 0);
+                                  setPurchaseNotes('');
+                                  setPurchaseDate(new Date().toISOString().split('T')[0]);
+                                  setCustomDateEnabled(false);
+                                }}
+                                className="w-5 h-5 rounded-full border-2 border-slate-300 hover:border-slate-500 shrink-0 flex items-center justify-center transition-colors group cursor-pointer"
+                                title="Log Purchase"
+                              >
+                                <div className="w-2.5 h-2.5 rounded-full bg-slate-300 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </button>
                             )}
                             <div>
                               <span className={item.purchased ? 'line-through text-slate-400 font-medium' : ''}>{item.name}</span>
@@ -1307,7 +1324,7 @@ export default function Needs() {
       </Modal>
 
       {/* Buy / Purchase Prompt Modal */}
-      <Modal isOpen={purchaseModal.open} onClose={() => setPurchaseModal({ open: false, listId: null, item: null })} title="Log Item Purchase">
+      <Modal isOpen={purchaseModal.open} onClose={() => { setPurchaseModal({ open: false, listId: null, item: null }); setCustomDateEnabled(false); }} title="Log Item Purchase">
         <form onSubmit={handleConfirmPurchase} className="space-y-6">
           <div className="space-y-1 bg-[#F9FAFB] p-5 rounded-2xl border border-[#F3F4F6]">
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#9CA3AF]">Procured Line Item</span>
@@ -1334,6 +1351,28 @@ export default function Needs() {
               <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-sm">KES</span>
             </div>
             <p className="text-[11px] text-slate-400 font-medium ml-1">Defaulted to target budget price. Correct this value to log exact ledger cost.</p>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex items-center justify-between px-1">
+              <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">Purchase Date</label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" className="rounded border-slate-300 text-[#A0604E] focus:ring-[#A0604E] h-3.5 w-3.5" checked={customDateEnabled} onChange={e => setCustomDateEnabled(e.target.checked)} />
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Edit Date</span>
+              </label>
+            </div>
+            
+            {customDateEnabled ? (
+              <div className="relative animate-in fade-in zoom-in-95 duration-150">
+                <input type="date" className="input-field h-14 pl-12" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
+                <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
+              </div>
+            ) : (
+              <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
+                <Clock className="text-[#9CA3AF]" size={18} />
+                <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
