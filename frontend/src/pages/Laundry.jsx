@@ -38,6 +38,7 @@ export default function Laundry() {
     parent_id: null,
     classification: ''
   });
+  const [stockQty, setStockQty] = useState('');
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
   const [customDateEnabled, setCustomDateEnabled] = useState(false);
   
