@@ -122,7 +122,7 @@ export default function Gym() {
       const response = await api.post('/gym/inventory/transaction', { 
         item_id: stockModal.data.id, 
         action: isRestock ? 'restock' : 'withdraw',
-        quantity: parseInt(stockQty),
+        quantity: parseFloat(stockQty),
         transaction_date: (isRestock && customDateEnabled) ? stockDate : undefined
       });
       
@@ -615,7 +615,7 @@ export default function Gym() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Transaction Quantity</label>
-              <input type="number" step="1" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="1" autoFocus />
+              <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
             </div>
 
             {stockModal.type === 'restock' ? (

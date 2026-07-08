@@ -58,7 +58,7 @@ router.delete('/items/:id', async (req, res) => {
 
 router.post('/withdraw', async (req, res) => {
   const { item_id, quantity, reason } = req.body;
-  const qty = parseInt(quantity);
+  const qty = parseFloat(quantity);
   
   if (!item_id || isNaN(qty) || qty <= 0) {
     return res.status(400).json({ error: 'Valid Item ID and quantity are required.' });
@@ -67,7 +67,7 @@ router.post('/withdraw', async (req, res) => {
   try {
     const [items] = await pool.query('SELECT quantity FROM laundry_items WHERE id = ? AND is_active = 1', [item_id]);
     if (!items.length) return res.status(404).json({ error: 'Item not found.' });
-    if (parseInt(items[0].quantity) < qty) return res.status(400).json({ error: 'Insufficient stock.' });
+    if (parseFloat(items[0].quantity) < qty) return res.status(400).json({ error: 'Insufficient stock.' });
 
     await pool.query('UPDATE laundry_items SET quantity = quantity - ?, last_withdrawn_at = NOW() WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM laundry_items WHERE id = ?', [item_id]);
@@ -86,7 +86,7 @@ router.post('/withdraw', async (req, res) => {
 
 router.post('/restock', async (req, res) => {
   const { item_id, quantity, reason, transaction_date } = req.body;
-  const qty = parseInt(quantity);
+  const qty = parseFloat(quantity);
   
   if (!item_id || isNaN(qty) || qty <= 0) {
     return res.status(400).json({ error: 'Valid Item ID and quantity are required.' });

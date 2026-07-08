@@ -71,7 +71,7 @@ router.post('/inventory/transaction', async (req, res) => {
   const { item_id, action, quantity, reason, transaction_date } = req.body;
   if (!item_id || !action || !quantity) return res.status(400).json({ error: 'item_id, action and quantity required.' });
   
-  const qty = parseInt(quantity);
+  const qty = parseFloat(quantity);
   if (isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid quantity.' });
 
   try {
@@ -79,7 +79,7 @@ router.post('/inventory/transaction', async (req, res) => {
     if (action === 'withdraw') {
       const [items] = await pool.query('SELECT quantity FROM gym_inventory WHERE id = ?', [item_id]);
       if (!items.length) return res.status(404).json({ error: 'Item not found.' });
-      if (parseInt(items[0].quantity) < qty) {
+      if (parseFloat(items[0].quantity) < qty) {
         return res.status(400).json({ error: `Insufficient stock. Available: ${items[0].quantity}` });
       }
       await pool.query('UPDATE gym_inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
