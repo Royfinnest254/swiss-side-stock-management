@@ -76,6 +76,14 @@ router.post('/inventory/transaction', async (req, res) => {
 
   try {
     let tDate = null;
+    if (transaction_date) {
+      const selectedDate = new Date(transaction_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (selectedDate > today) return res.status(400).json({ error: 'Transaction date cannot be in the future.' });
+      tDate = transaction_date;
+    }
+
     if (action === 'withdraw') {
       const [items] = await pool.query('SELECT quantity FROM gym_inventory WHERE id = ?', [item_id]);
       if (!items.length) return res.status(404).json({ error: 'Item not found.' });
@@ -84,13 +92,6 @@ router.post('/inventory/transaction', async (req, res) => {
       }
       await pool.query('UPDATE gym_inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
     } else {
-      if (transaction_date) {
-        const selectedDate = new Date(transaction_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        if (selectedDate > today) return res.status(400).json({ error: 'Restock date cannot be in the future.' });
-        tDate = transaction_date;
-      }
       await pool.query('UPDATE gym_inventory SET quantity = quantity + ? WHERE id = ?', [qty, item_id]);
     }
 

@@ -94,7 +94,7 @@ router.delete('/items/:id', async (req, res) => {
 
 // FIX: Hardened Withdraw & Restock (Removed section="products" filter bug)
 router.post('/withdraw', async (req, res) => {
-  const { item_id, quantity, reason } = req.body;
+  const { item_id, quantity, reason, transaction_date } = req.body;
   const qty = parseFloat(quantity);
   
   if (!item_id || isNaN(qty) || qty <= 0) {
@@ -102,6 +102,15 @@ router.post('/withdraw', async (req, res) => {
   }
 
   try {
+    let tDate = null;
+    if (transaction_date) {
+      const selectedDate = new Date(transaction_date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (selectedDate > today) return res.status(400).json({ error: 'Transaction date cannot be in the future.' });
+      tDate = transaction_date;
+    }
+
     const [items] = await pool.query('SELECT quantity FROM spa_items WHERE id = ? AND is_active = 1', [item_id]);
     if (!items.length) return res.status(404).json({ error: 'Item not found.' });
     
@@ -113,8 +122,8 @@ router.post('/withdraw', async (req, res) => {
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM spa_items WHERE id = ?', [item_id]);
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, "withdraw", ?, CURDATE(), ?, ?)',
-      [item_id, qty, reason || null, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, "withdraw", ?, COALESCE(?, CURDATE()), ?, ?)',
+      [item_id, qty, tDate, reason || null, req.user.id]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });

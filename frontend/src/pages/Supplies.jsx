@@ -125,7 +125,7 @@ export default function Supplies() {
       const response = await api.post(endpoint, { 
         item_id: stockModal.data.id, 
         quantity: parseFloat(stockQty),
-        transaction_date: (isRestock && customDateEnabled) ? stockDate : undefined
+        transaction_date: customDateEnabled ? stockDate : undefined
       });
       
       if (response.item) {
@@ -595,34 +595,27 @@ export default function Supplies() {
               <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
             </div>
 
-            {stockModal.type === 'restock' ? (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between px-1">
-                  <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">Transaction Date</label>
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" className="rounded border-slate-300 text-[#A0604E] focus:ring-[#A0604E] h-3.5 w-3.5" checked={customDateEnabled} onChange={e => setCustomDateEnabled(e.target.checked)} />
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Edit Date</span>
-                  </label>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-1">
+                <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">Transaction Date</label>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" className="rounded border-slate-300 text-[#A0604E] focus:ring-[#A0604E] h-3.5 w-3.5" checked={customDateEnabled} onChange={e => setCustomDateEnabled(e.target.checked)} />
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Edit Date</span>
+                </label>
+              </div>
+              
+              {customDateEnabled ? (
+                <div className="relative animate-in fade-in zoom-in-95 duration-150">
+                  <input type="date" className="input-field h-14 pl-12" value={stockDate} onChange={e => setStockDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
+                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
                 </div>
-                
-                {customDateEnabled ? (
-                  <div className="relative animate-in fade-in zoom-in-95 duration-150">
-                    <input type="date" className="input-field h-14 pl-12" value={stockDate} onChange={e => setStockDate(e.target.value)} max={new Date().toISOString().split('T')[0]} required />
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" size={18} />
-                  </div>
-                ) : (
-                  <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
-                    <Clock className="text-[#9CA3AF]" size={18} />
-                    <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
-                <Clock className="text-[#9CA3AF]" size={18} />
-                <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
-              </div>
-            )}
+              ) : (
+                <div className="p-4 bg-[#F9FAFB] rounded-xl flex items-center gap-3 border border-slate-100">
+                  <Clock className="text-[#9CA3AF]" size={18} />
+                  <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">Date will be recorded as today automatically.</span>
+                </div>
+              )}
+            </div>
           </div>
 
           <button type="submit" disabled={submitting} className="btn-primary w-full h-16 text-[13px] font-black uppercase tracking-widest">
