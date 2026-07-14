@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, CookingPot, Flower2, ShoppingBag, 
   Dumbbell, Truck, WashingMachine, BarChart3, ListChecks, 
-  Users, Trash2, ClipboardList, Home, X, Menu
+  Users, Trash2, ClipboardList, Home, X, Menu, Folder
 } from 'lucide-react';
 
 const MENU_ITEMS = [
@@ -16,6 +16,7 @@ const MENU_ITEMS = [
   { label: 'Laundry', path: '/laundry', icon: WashingMachine },
   { label: 'Accommodation', path: '/accommodation', icon: Home },
   { label: 'Needs', path: '/needs', icon: ClipboardList },
+  { label: 'General Supplies', path: '/general-supplies', icon: Folder },
   { label: 'Reports', path: '/reports', icon: BarChart3 },
 ];
 

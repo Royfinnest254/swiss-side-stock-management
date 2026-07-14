@@ -15,6 +15,7 @@ const Supplies = lazy(() => import('./pages/Supplies'));
 const Laundry = lazy(() => import('./pages/Laundry'));
 const Accommodation = lazy(() => import('./pages/Accommodation'));
 const Needs = lazy(() => import('./pages/Needs'));
+const GeneralSupplies = lazy(() => import('./pages/GeneralSupplies'));
 const Reports = lazy(() => import('./pages/Reports'));
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout'));
 const UserManagement = lazy(() => import('./pages/admin/UserManagement'));
@@ -66,6 +67,7 @@ export default function App() {
           <Route path="accommodation/:propertyId" element={<ErrorBoundary><Accommodation /></ErrorBoundary>} />
           <Route path="accommodation/:propertyId/:houseId" element={<ErrorBoundary><Accommodation /></ErrorBoundary>} />
           <Route path="needs" element={<ErrorBoundary><Needs /></ErrorBoundary>} />
+          <Route path="general-supplies" element={<ErrorBoundary><GeneralSupplies /></ErrorBoundary>} />
           <Route path="reports" element={<ErrorBoundary><Reports /></ErrorBoundary>} />
           <Route path="settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
 

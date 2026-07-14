@@ -55,9 +55,16 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 
 // Feature 4, 5, 6: Transactional Endpoints
 router.post('/withdraw', requireStaff, async (req, res) => {
-  const { item_id, quantity, reason } = req.body;
+  const { item_id, quantity, reason, transaction_date } = req.body;
   const qty = parseFloat(quantity);
   if (!item_id || isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid ID/quantity.' });
+
+  if (transaction_date) {
+    const selectedDate = new Date(transaction_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (selectedDate > today) return res.status(400).json({ error: 'Withdrawal date cannot be in the future.' });
+  }
 
   try {
     const [items] = await pool.query('SELECT quantity FROM general_supplies WHERE id = ? AND is_active = 1', [item_id]);
@@ -69,8 +76,8 @@ router.post('/withdraw', requireStaff, async (req, res) => {
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     // Use generic transactions table if module-specific doesn't exist
     await pool.query(
-      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ? FROM general_supplies WHERE id = ?',
-      [item_id, qty, req.user.display_name || req.user.email, reason || null, item_id]
+      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
+      [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
     );
     const [updated] = await pool.query('SELECT * FROM general_supplies WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
