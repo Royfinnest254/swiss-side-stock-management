@@ -5,10 +5,8 @@ import toast from 'react-hot-toast';
 import { 
   History, Filter, Calendar, Search, 
   Loader2, Inbox, ChevronDown, User,
-  Shield, Database, Lock, Download
+  Shield, Database, Lock
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 
 const ACTION_TYPES = [
   { value: '', label: 'All Actions' },
@@ -24,7 +22,6 @@ export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
@@ -67,100 +64,6 @@ export default function AuditLogs() {
     }
   };
 
-  const getLogoBase64 = () => new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => resolve(null);
-    img.src = '/logo.png';
-  });
-
-  const handleExportPDF = async () => {
-    if (logs.length === 0) return toast.error('No logs to export');
-    setExporting(true);
-    try {
-      const logoBase64 = await getLogoBase64();
-      const element = document.createElement('div');
-      element.style.padding = '40px';
-      element.style.width = '1000px';
-      element.style.background = '#fff';
-      element.style.position = 'fixed';
-      element.style.left = '-9999px';
-
-      element.innerHTML = `
-        <div style="font-family: 'Outfit', Arial, sans-serif;">
-          <div style="display: flex; align-items: center; gap: 24px; margin-bottom: 40px; border-bottom: 3px solid #A0604E; padding-bottom: 30px;">
-            ${logoBase64 ? `<img src="${logoBase64}" style="width: 80px; height: 80px; object-fit: contain; border-radius: 16px;" />` : ''}
-            <div>
-              <h1 style="color: #A0604E; text-transform: uppercase; letter-spacing: 4px; font-weight: 900; font-size: 28px; margin: 0;">Swiss Side Management</h1>
-              <p style="text-transform: uppercase; font-size: 12px; font-weight: 900; letter-spacing: 2px; color: #64748b; margin: 6px 0 0 0;">Official System Audit List</p>
-              <p style="font-size: 11px; color: #94a3b8; margin: 4px 0 0 0;">Generated: ${new Date().toLocaleString()} | Security Level: Admin Confidential</p>
-            </div>
-          </div>
-
-          <div style="margin-bottom: 30px; display: flex; gap: 20px;">
-            <div style="background: #f8fafc; padding: 15px; border-radius: 12px; flex: 1;">
-              <span style="display: block; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">Log Count</span>
-              <span style="font-size: 18px; font-weight: 900; color: #1e293b;">${logs.length} Entries</span>
-            </div>
-            <div style="background: #f8fafc; padding: 15px; border-radius: 12px; flex: 1;">
-              <span style="display: block; font-size: 9px; font-weight: 900; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">Filter Criteria</span>
-              <span style="font-size: 18px; font-weight: 900; color: #1e293b;">${filters.action || 'Full System History'}</span>
-            </div>
-          </div>
-
-          <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-            <thead>
-              <tr style="background: #f1f5f9; border-bottom: 2px solid #e2e8f0;">
-                <th style="padding: 15px; text-align: left; color: #475569; text-transform: uppercase; font-weight: 900;">Timestamp</th>
-                <th style="padding: 15px; text-align: left; color: #475569; text-transform: uppercase; font-weight: 900;">Staff</th>
-                <th style="padding: 15px; text-align: left; color: #475569; text-transform: uppercase; font-weight: 900;">Action Type</th>
-                <th style="padding: 15px; text-align: left; color: #475569; text-transform: uppercase; font-weight: 900;">Event Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${logs.map((log, idx) => `
-                <tr style="border-bottom: 1px solid #f1f5f9; background: ${idx % 2 === 0 ? '#fff' : '#fafafa'}">
-                  <td style="padding: 15px; color: #64748b; font-weight: 700;">${new Date(log.created_at).toLocaleString()}</td>
-                  <td style="padding: 15px; color: #1e293b; font-weight: 900;">${log.admin_name || log.admin_email}</td>
-                  <td style="padding: 15px;"><span style="background: #eff6ff; color: #1d4ed8; padding: 4px 8px; border-radius: 6px; font-weight: 900; font-size: 9px; text-transform: uppercase;">${log.action}</span></td>
-                  <td style="padding: 15px; color: #475569; line-height: 1.4;">${log.details || '—'}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-
-          <div style="margin-top: 40px; padding: 20px; border-top: 1px solid #e2e8f0; text-align: center;">
-            <p style="font-size: 9px; color: #94a3b8; text-transform: uppercase; letter-spacing: 2px; font-weight: 700;">End of List — Swiss Side Security Protocol</p>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(element);
-      const canvas = await html2canvas(element, { scale: 2, useCORS: true });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      
-      const fileName = `SwissSide-Audit-Logs.pdf`;
-      pdf.save(fileName);
-      document.body.removeChild(element);
-      toast.success('Audit report generated');
-    } catch (err) {
-      toast.error('Export failed');
-    } finally {
-      setExporting(false);
-    }
-  };
-
   const getBorderColor = (action) => {
     if (!action) return 'border-l-primary';
     if (action.includes('CREATED') || action.includes('RESTORED')) return 'border-l-success';
@@ -184,13 +87,6 @@ export default function AuditLogs() {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Audit Logs</h1>
           <p className="text-xs font-black text-primary uppercase tracking-[0.3em] mt-2">Security &amp; Accountability</p>
         </div>
-        <button 
-          onClick={handleExportPDF} 
-          disabled={exporting || loading}
-          className="btn-primary flex items-center gap-2 px-8 shadow-premium"
-        >
-          {exporting ? <Loader2 className="animate-spin" size={18} /> : <><Download size={18} /> Export PDF</>}
-        </button>
       </div>
 
       {/* Filter Bar */}
