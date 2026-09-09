@@ -267,7 +267,7 @@ export default function Supplies() {
         </div>
         {activeTab === 'list' && (
           <button onClick={() => {
-            setItemForm({ name: '', type: 'Product', quantity: 0, unit: 'pcs', reorder_level: 5, status: 'good', notes: '', unit_price: '' });
+            setItemForm({ name: '', type: 'Product', quantity: 0, unit: 'pcs', reorder_level: 5, status: 'good', notes: '', is_folder: false, parent_id: null, classification: '', unit_price: '' });
             setItemModal({ open: true, mode: 'add', data: null });
           }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
         )}
@@ -375,7 +375,8 @@ export default function Supplies() {
                                     notes: '',
                                     is_folder: false,
                                     parent_id: item.id,
-                                    classification: ''
+                                    classification: '',
+                                    unit_price: ''
                                   });
                                   setItemModal({ open: true, mode: 'add', data: null });
                                 }} 

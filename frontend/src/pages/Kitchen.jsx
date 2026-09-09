@@ -303,7 +303,7 @@ export default function Kitchen() {
                   {filtered.map(item => {
                     const parentFolder = item.parent_id ? items.find(i => i.id === item.parent_id) : null;
                     return (
-                      <tr key={item.id} className="hover:bg-[#F9FAFB] transition-colors">
+                      <tr key={item.id} className={`hover:bg-[#F9FAFB] transition-colors ${item.is_folder ? 'border-l-4 border-[#A0604E] bg-orange-50/10' : ''}`}>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 bg-[#FDF5F3] text-[#A0604E] rounded-xl flex items-center justify-center shrink-0">
@@ -372,7 +372,29 @@ export default function Kitchen() {
                         </td>
                         <td className="text-right px-6 py-4">
                           <div className="flex justify-end gap-2">
-                            {!item.is_folder && (
+                            {item.is_folder ? (
+                              <button 
+                                title="Add Item inside Folder" 
+                                onClick={() => {
+                                  setItemForm({
+                                    name: '',
+                                    quantity: 0,
+                                    unit: 'pcs',
+                                    reorder_level: 5,
+                                    category: item.category ? (item.category.charAt(0).toUpperCase() + item.category.slice(1).toLowerCase()) : 'Consumables',
+                                    notes: '',
+                                    is_folder: false,
+                                    parent_id: item.id,
+                                    classification: '',
+                                    unit_price: ''
+                                  });
+                                  setItemModal({ open: true, mode: 'add', data: null });
+                                }} 
+                                className="px-3 py-1.5 flex items-center gap-1 bg-[#FDF5F3] text-[#A0604E] text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-[#A0604E] hover:text-white transition-all"
+                              >
+                                <Plus size={12} /> ADD ITEM
+                              </button>
+                            ) : (
                               <>
                                 <button title="Restock" onClick={() => setStockModal({ open: true, type: 'restock', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
                                 <button title="Withdraw" onClick={() => setStockModal({ open: true, type: 'withdraw', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
@@ -729,7 +751,6 @@ export default function Kitchen() {
               </>
             )}
           </div>
-          <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">Confirm</button>
           <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">Confirm</button>
         </form>
       </Modal>

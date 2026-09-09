@@ -305,7 +305,7 @@ export default function Laundry() {
         </div>
         {activeTab === 'list' && (
           <button onClick={() => {
-            setItemForm({ name: '', type: 'Products & Supplies', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', unit_price: '' });
+            setItemForm({ name: '', type: 'Products & Supplies', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', is_folder: false, parent_id: null, classification: '', unit_price: '' });
             setItemModal({ open: true, mode: 'add', data: null });
           }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
         )}
@@ -437,7 +437,8 @@ export default function Laundry() {
                                     notes: '',
                                     is_folder: false,
                                     parent_id: item.id,
-                                    classification: ''
+                                    classification: '',
+                                    unit_price: ''
                                   });
                                   setItemModal({ open: true, mode: 'add', data: null });
                                 }} 

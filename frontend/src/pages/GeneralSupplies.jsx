@@ -247,7 +247,8 @@ export default function GeneralSupplies() {
                                 category: item.category || 'Other',
                                 is_folder: false,
                                 classification: '',
-                                parent_id: item.id
+                                parent_id: item.id,
+                                unit_price: ''
                               });
                               setItemModal({ open: true, mode: 'add', data: null });
                             }}

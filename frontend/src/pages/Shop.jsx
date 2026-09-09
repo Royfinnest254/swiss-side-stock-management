@@ -301,7 +301,7 @@ export default function Shop() {
         </div>
         {activeTab === 'list' && (
           <button onClick={() => {
-            setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Merchandise', unit_price: '' });
+            setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Merchandise', is_folder: false, parent_id: null, classification: '', unit_price: '' });
             setItemModal({ open: true, mode: 'add', data: null });
           }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
         )}
@@ -421,7 +421,8 @@ export default function Shop() {
                                     category: item.category || 'Merchandise',
                                     is_folder: false,
                                     parent_id: item.id,
-                                    classification: ''
+                                    classification: '',
+                                    unit_price: ''
                                   });
                                   setItemModal({ open: true, mode: 'add', data: null });
                                 }} 
