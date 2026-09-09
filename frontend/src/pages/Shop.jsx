@@ -35,12 +35,14 @@ export default function Shop() {
     category: 'Merchandise', 
     is_folder: false, 
     parent_id: null,
-    classification: '' 
+    classification: '',
+    unit_price: '' 
   });
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [stockQty, setStockQty] = useState('');
   const [stockDate, setStockDate] = useState(new Date().toISOString().split('T')[0]);
   const [customDateEnabled, setCustomDateEnabled] = useState(false);
+  const [restockUnitPrice, setRestockUnitPrice] = useState('');
   
   // Maintenance states matching Gym / Spa / Kitchen / Laundry
   const [maintForm, setMaintForm] = useState({ description: '' });
@@ -122,7 +124,8 @@ export default function Shop() {
       category: itemForm.category,
       is_folder: itemForm.is_folder ? 1 : 0,
       parent_id: itemForm.is_folder ? null : (itemForm.parent_id || null),
-      classification: itemForm.is_folder ? null : (itemForm.classification || null)
+      classification: itemForm.is_folder ? null : (itemForm.classification || null),
+      unit_price: itemForm.is_folder ? null : (itemForm.unit_price !== '' ? parseFloat(itemForm.unit_price) : null)
     };
 
     try {
@@ -156,7 +159,8 @@ export default function Shop() {
       const response = await api.post(endpoint, { 
         item_id: stockModal.data.id, 
         quantity: parseFloat(stockQty),
-        transaction_date: customDateEnabled ? stockDate : undefined
+        transaction_date: customDateEnabled ? stockDate : undefined,
+        unit_price_paid: isRestock && restockUnitPrice !== '' ? parseFloat(restockUnitPrice) : undefined
       });
       
       if (response.item) {
@@ -172,6 +176,7 @@ export default function Shop() {
       setStockQty('');
       setStockDate(new Date().toISOString().split('T')[0]);
       setCustomDateEnabled(false);
+      setRestockUnitPrice('');
     } catch (err) { 
       toast.error(err.response?.data?.error || 'Update failed'); 
     } finally { 
@@ -296,7 +301,7 @@ export default function Shop() {
         </div>
         {activeTab === 'list' && (
           <button onClick={() => {
-            setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Merchandise' });
+            setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Merchandise', unit_price: '' });
             setItemModal({ open: true, mode: 'add', data: null });
           }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
         )}
@@ -329,6 +334,8 @@ export default function Shop() {
                     
                     <th className="px-6 py-4">Item</th>
                     <th className="px-6 py-4">Stock</th>
+                    <th className="hidden md:table-cell px-6 py-4">Unit Price</th>
+                    <th className="hidden lg:table-cell px-6 py-4">Total Value</th>
                     <th className="hidden md:table-cell px-6 py-4">Status</th>
                     <th className="text-right px-6 py-4">Actions</th>
                   </tr>
@@ -362,6 +369,28 @@ export default function Shop() {
                             <div className="flex items-baseline gap-1.5">
                               <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
                               <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit || 'pcs'}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="hidden md:table-cell px-6 py-4">
+                          {item.is_folder ? (
+                            <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">N/A</span>
+                          ) : (
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">KES</span>
+                              <span className="text-sm font-black text-[#1A1A1A]">{item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="hidden lg:table-cell px-6 py-4">
+                          {item.is_folder ? (
+                            <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">N/A</span>
+                          ) : (
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-[11px] font-black text-[#9CA3AF] uppercase tracking-widest">KES</span>
+                              <span className="text-sm font-black text-[#1A1A1A]">
+                                {item.unit_price != null && item.unit_price !== '' ? (parseFloat(item.unit_price) * parseFloat(item.quantity || 0)).toFixed(2) : '—'}
+                              </span>
                             </div>
                           )}
                         </td>
@@ -416,7 +445,8 @@ export default function Shop() {
                                 category: item.category || 'Merchandise',
                                 is_folder: !!item.is_folder,
                                 parent_id: item.parent_id || null,
-                                classification: item.classification || ''
+                                classification: item.classification || '',
+                                unit_price: item.unit_price != null ? item.unit_price : ''
                               });
                               setItemModal({ open: true, mode: 'edit', data: item });
                             }} className="w-8 h-8 flex items-center justify-center bg-gray-100 text-[#6B7280] rounded-full hover:scale-110 transition-transform"><Wrench size={16} /></button>
@@ -628,7 +658,7 @@ export default function Shop() {
 
       
       {/* MODALS */}
-      <Modal isOpen={stockModal.open} onClose={() => { setStockModal({ open: false, type: 'restock', data: null }); setCustomDateEnabled(false); }} title={`${stockModal.type === 'restock' ? 'Restock' : 'Withdraw'} - ${stockModal.data?.name}`}>
+      <Modal isOpen={stockModal.open} onClose={() => { setStockModal({ open: false, type: 'restock', data: null }); setCustomDateEnabled(false); setRestockUnitPrice(''); }} title={`${stockModal.type === 'restock' ? 'Restock' : 'Withdraw'} - ${stockModal.data?.name}`}>
         <form onSubmit={handleStockUpdate} className="space-y-6 py-4">
           <div className="text-center mb-8">
             <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest block mb-2">Current Balance</span>
@@ -640,6 +670,21 @@ export default function Shop() {
               <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Transaction Quantity</label>
               <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
             </div>
+
+            {stockModal.type === 'restock' && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Unit Cost Price (KES) <span className="text-[9px] font-normal normal-case text-[#9CA3AF]">— optional</span></label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="input-field h-12 text-center font-black"
+                  placeholder="0.00"
+                  value={restockUnitPrice}
+                  onChange={e => setRestockUnitPrice(e.target.value)}
+                />
+              </div>
+            )}
 
             <div className="space-y-4">
               <div className="flex items-center justify-between px-1">
@@ -711,19 +756,25 @@ export default function Shop() {
                 <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Classification (Optional)</label>
                 <input className="input-field" value={itemForm.classification || ''} onChange={e => setItemForm({...itemForm, classification: e.target.value})} placeholder="e.g. Expiration Date, Supplier" />
               </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
+                  <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, units" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
+                  <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit Cost Price (KES) <span className="text-[9px] font-normal normal-case text-[#9CA3AF]">— optional</span></label>
+                <input type="number" step="0.01" min="0" className="input-field" placeholder="0.00" value={itemForm.unit_price} onChange={e => setItemForm({...itemForm, unit_price: e.target.value})} />
+              </div>
             </>
           )}
 
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
-              <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, units" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
-              <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
-            </div>
-          </div>
           <button type="submit" disabled={submitting} className="btn-primary w-full h-14 uppercase tracking-widest font-black">Confirm</button>
         </form>
       </Modal>
