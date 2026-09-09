@@ -15,11 +15,11 @@ router.get('/items', async (req, res) => {
 });
 
 router.post('/items', async (req, res) => {
-  const { name, category, quantity, unit, reorder_level, notes, is_folder, parent_id, classification } = req.body;
+  const { name, category, quantity, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price } = req.body;
   try {
     const [result] = await pool.query(
-      'INSERT INTO laundry_items (name, category, quantity, unit, reorder_level, notes, is_folder, parent_id, classification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, category, quantity || 0, unit || 'pcs', reorder_level || 0, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null]
+      'INSERT INTO laundry_items (name, category, quantity, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, category, quantity || 0, unit || 'pcs', reorder_level || 0, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
     await pool.query(
       'INSERT INTO laundry_transactions (item_id, action, quantity, transaction_date, action_by) VALUES (?, "added", ?, CURDATE(), ?)',
@@ -33,11 +33,11 @@ router.post('/items', async (req, res) => {
 });
 
 router.put('/items/:id', async (req, res) => {
-  const { name, category, unit, reorder_level, notes, quantity, is_folder, parent_id, classification } = req.body;
+  const { name, category, unit, reorder_level, notes, quantity, is_folder, parent_id, classification, unit_price } = req.body;
   try {
     await pool.query(
-      'UPDATE laundry_items SET name = ?, category = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, is_folder = ?, parent_id = ?, classification = ? WHERE id = ?',
-      [name, category, unit || 'pcs', reorder_level || 0, notes || null, quantity || 0, is_folder ? 1 : 0, parent_id || null, classification || null, req.params.id]
+      'UPDATE laundry_items SET name = ?, category = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, category, unit || 'pcs', reorder_level || 0, notes || null, quantity || 0, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -94,7 +94,7 @@ router.post('/withdraw', async (req, res) => {
 });
 
 router.post('/restock', async (req, res) => {
-  const { item_id, quantity, reason, transaction_date } = req.body;
+  const { item_id, quantity, reason, transaction_date, unit_price_paid } = req.body;
   const qty = parseFloat(quantity);
   
   if (!item_id || isNaN(qty) || qty <= 0) {
@@ -111,8 +111,8 @@ router.post('/restock', async (req, res) => {
 
     await pool.query('UPDATE laundry_items SET quantity = quantity + ?, last_restocked_at = NOW() WHERE id = ?', [qty, item_id]);
     await pool.query(
-      'INSERT INTO laundry_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?)',
-      [item_id, qty, transaction_date || null, reason || null, req.user.id]
+      'INSERT INTO laundry_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, qty, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]
     );
     const [updated] = await pool.query('SELECT * FROM laundry_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });

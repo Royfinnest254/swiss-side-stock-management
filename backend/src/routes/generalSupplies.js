@@ -16,11 +16,11 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification } = req.body;
+    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
     if (!name || !unit || !category) return res.status(400).json({ error: 'Name, unit, and category required.' });
     const [result] = await pool.query(
-      'INSERT INTO general_supplies (name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, quantity || 0, unit, reorder_level || 0, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null]
+      'INSERT INTO general_supplies (name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, quantity || 0, unit, reorder_level || 0, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
     res.json({ success: true, id: result.insertId });
   } catch (err) {
@@ -31,10 +31,10 @@ router.post('/', requireStaff, async (req, res) => {
 
 router.put('/:id', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification } = req.body;
+    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
     await pool.query(
-      'UPDATE general_supplies SET name = ?, quantity = ?, unit = ?, reorder_level = ?, category = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ? WHERE id = ?',
-      [name, quantity, unit, reorder_level, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, req.params.id]
+      'UPDATE general_supplies SET name = ?, quantity = ?, unit = ?, reorder_level = ?, category = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, quantity, unit, reorder_level, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -75,10 +75,12 @@ router.post('/withdraw', requireStaff, async (req, res) => {
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM general_supplies WHERE id = ?', [item_id]);
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     // Use generic transactions table if module-specific doesn't exist
-    await pool.query(
-      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
-      [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
-    );
+    try {
+      await pool.query(
+        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
+        [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
+      );
+    } catch (txErr) { /* transactions table may not exist, skip silently */ }
     const [updated] = await pool.query('SELECT * FROM general_supplies WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
   } catch (err) {
@@ -88,7 +90,7 @@ router.post('/withdraw', requireStaff, async (req, res) => {
 });
 
 router.post('/restock', requireStaff, async (req, res) => {
-  const { item_id, quantity, reason, transaction_date } = req.body;
+  const { item_id, quantity, reason, transaction_date, unit_price_paid } = req.body;
   const qty = parseFloat(quantity);
   if (!item_id || isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid ID/quantity.' });
 
@@ -100,11 +102,18 @@ router.post('/restock', requireStaff, async (req, res) => {
   }
 
   try {
-    await pool.query('UPDATE general_supplies SET quantity = quantity + ? WHERE id = ?', [qty, item_id]);
-    await pool.query(
-      'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "RESTOCK", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
-      [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
-    );
+    // If a new cost price is provided, also update the item's unit_price
+    if (unit_price_paid != null) {
+      await pool.query('UPDATE general_supplies SET quantity = quantity + ?, unit_price = ? WHERE id = ?', [qty, unit_price_paid, item_id]);
+    } else {
+      await pool.query('UPDATE general_supplies SET quantity = quantity + ? WHERE id = ?', [qty, item_id]);
+    }
+    try {
+      await pool.query(
+        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "RESTOCK", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
+        [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
+      );
+    } catch (txErr) { /* transactions table may not exist, skip silently */ }
     const [updated] = await pool.query('SELECT * FROM general_supplies WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
   } catch (err) {

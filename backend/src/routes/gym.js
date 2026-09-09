@@ -17,12 +17,12 @@ router.get('/inventory', async (req, res) => {
 
 // POST add new item — accepts name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification
 router.post('/inventory', async (req, res) => {
-  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification } = req.body;
+  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
   if (!name) return res.status(400).json({ error: 'Item name required.' });
   try {
     const [result] = await pool.query(
-      'INSERT INTO gym_inventory (name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null]
+      'INSERT INTO gym_inventory (name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
     if (quantity && quantity > 0) {
       await pool.query(
@@ -39,11 +39,11 @@ router.post('/inventory', async (req, res) => {
 
 // PUT update item
 router.put('/inventory/:id', async (req, res) => {
-  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification } = req.body;
+  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
   try {
     await pool.query(
-      'UPDATE gym_inventory SET name = ?, quantity = ?, unit = ?, reorder_level = ?, status = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ? WHERE id = ?',
-      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, req.params.id]
+      'UPDATE gym_inventory SET name = ?, quantity = ?, unit = ?, reorder_level = ?, status = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -68,7 +68,7 @@ router.delete('/inventory/:id', async (req, res) => {
 
 // POST restock or withdraw
 router.post('/inventory/transaction', async (req, res) => {
-  const { item_id, action, quantity, reason, transaction_date } = req.body;
+  const { item_id, action, quantity, reason, transaction_date, unit_price_paid } = req.body;
   if (!item_id || !action || !quantity) return res.status(400).json({ error: 'item_id, action and quantity required.' });
   
   const qty = parseFloat(quantity);
@@ -96,8 +96,8 @@ router.post('/inventory/transaction', async (req, res) => {
     }
 
     await pool.query(
-      'INSERT INTO gym_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, ?, ?, COALESCE(?, CURDATE()), ?, ?)',
-      [item_id, action, qty, tDate, reason || null, req.user.id]
+      'INSERT INTO gym_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, action, qty, tDate, reason || null, req.user.id, action === 'restock' && unit_price_paid != null ? unit_price_paid : null]
     );
     const [updated] = await pool.query('SELECT * FROM gym_inventory WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });

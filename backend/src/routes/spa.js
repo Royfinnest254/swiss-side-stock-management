@@ -15,7 +15,7 @@ router.get('/items', async (req, res) => {
 });
 
 router.post('/items', async (req, res) => {
-  const { name, quantity, unit, reorder_level, notes, is_folder, parent_id, classification } = req.body;
+  const { name, quantity, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price } = req.body;
   const rawSection = req.body.section || req.body.category;
   if (!name || !rawSection) return res.status(400).json({ error: 'Name and section/category required.' });
 
@@ -37,8 +37,8 @@ router.post('/items', async (req, res) => {
     }
 
     const [result] = await pool.query(
-      'INSERT INTO spa_items (name, section, quantity, unit, reorder_level, condition_status, notes, is_folder, parent_id, classification) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, normalizedSection, finalQty, unit || null, finalReorder, finalCondition, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null]
+      'INSERT INTO spa_items (name, section, quantity, unit, reorder_level, condition_status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, normalizedSection, finalQty, unit || null, finalReorder, finalCondition, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
 
     await pool.query(
@@ -54,7 +54,7 @@ router.post('/items', async (req, res) => {
 });
 
 router.put('/items/:id', async (req, res) => {
-  const { name, unit, reorder_level, notes, quantity, is_folder, parent_id, classification } = req.body;
+  const { name, unit, reorder_level, notes, quantity, is_folder, parent_id, classification, unit_price } = req.body;
   const rawSection = req.body.section || req.body.category;
   if (!rawSection) return res.status(400).json({ error: 'Section/category is required.' });
 
@@ -65,8 +65,8 @@ router.put('/items/:id', async (req, res) => {
 
   try {
     await pool.query(
-      'UPDATE spa_items SET name = ?, section = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, is_folder = ?, parent_id = ?, classification = ? WHERE id = ?',
-      [name, normalizedSection, unit || null, reorder_level || 0, notes || null, quantity || 0, is_folder ? 1 : 0, parent_id || null, classification || null, req.params.id]
+      'UPDATE spa_items SET name = ?, section = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, normalizedSection, unit || null, reorder_level || 0, notes || null, quantity || 0, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     await pool.query(
       'INSERT INTO spa_transactions (item_id, action, transaction_date, action_by) VALUES (?, "edited", CURDATE(), ?)',
@@ -134,7 +134,7 @@ router.post('/withdraw', async (req, res) => {
 });
 
 router.post('/restock', async (req, res) => {
-  const { item_id, quantity, reason, transaction_date } = req.body;
+  const { item_id, quantity, reason, transaction_date, unit_price_paid } = req.body;
   const qty = parseFloat(quantity);
 
   if (!item_id || isNaN(qty) || qty <= 0) {
@@ -151,8 +151,8 @@ router.post('/restock', async (req, res) => {
 
     await pool.query('UPDATE spa_items SET quantity = quantity + ?, last_restocked_at = NOW() WHERE id = ?', [qty, item_id]);
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?)',
-      [item_id, qty, transaction_date || null, reason || null, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, qty, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
