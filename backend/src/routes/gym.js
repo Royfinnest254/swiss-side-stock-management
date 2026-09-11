@@ -70,6 +70,7 @@ router.delete('/inventory/:id', async (req, res) => {
 router.post('/inventory/transaction', async (req, res) => {
   const { item_id, action, quantity, reason, transaction_date, unit_price_paid } = req.body;
   if (!item_id || !action || !quantity) return res.status(400).json({ error: 'item_id, action and quantity required.' });
+  if (!['restock', 'withdraw'].includes(action)) return res.status(400).json({ error: 'Action must be restock or withdraw.' });
   
   const qty = parseFloat(quantity);
   if (isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid quantity.' });
@@ -92,7 +93,10 @@ router.post('/inventory/transaction', async (req, res) => {
       }
       await pool.query('UPDATE gym_inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
     } else {
-      await pool.query('UPDATE gym_inventory SET quantity = quantity + ? WHERE id = ?', [qty, item_id]);
+      await pool.query(
+        'UPDATE gym_inventory SET quantity = quantity + ?, unit_price = COALESCE(?, unit_price) WHERE id = ?',
+        [qty, unit_price_paid, item_id]
+      );
     }
 
     await pool.query(

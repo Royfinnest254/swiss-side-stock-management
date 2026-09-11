@@ -165,7 +165,7 @@ export default function GeneralSupplies() {
               <tr className="bg-[#F9FAFB]">
                 <th className="px-6 py-4">Supply Detail</th>
                 <th className="px-6 py-4">Stock Balance</th>
-                <th className="hidden md:table-cell px-6 py-4">Unit Price</th>
+                <th className="px-6 py-4">Unit Price</th>
                 <th className="hidden lg:table-cell px-6 py-4">Total Value</th>
                 <th className="hidden md:table-cell px-6 py-4">Status</th>
                 <th className="text-right px-6 py-4">Actions</th>
@@ -200,7 +200,7 @@ export default function GeneralSupplies() {
                         </div>
                       )}
                     </td>
-                    <td className="hidden md:table-cell px-6 py-4">
+                    <td className="px-6 py-4">
                       {item.is_folder ? (
                         <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">N/A</span>
                       ) : (
