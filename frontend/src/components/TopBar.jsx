@@ -40,6 +40,7 @@ export default function TopBar({ onMenuClick }) {
         {/* Mobile: hamburger + logo image (no box wrapper) */}
         <button
           onClick={onMenuClick}
+          aria-label="Open navigation"
           className="lg:hidden p-2 text-[#6B7280] hover:text-[#A0604E] hover:bg-[#A0604E]/5 rounded-xl transition-all"
         >
           <Menu size={24} />

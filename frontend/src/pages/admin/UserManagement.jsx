@@ -429,7 +429,7 @@ export default function UserManagement() {
             </thead>
             <tbody className="divide-y divide-[#F3F4F6]">
               {(users ?? []).map((user) => (
-                <tr key={user.id ?? Math.random()} className="hover:bg-gray-50/50 transition-colors">
+                <tr key={user.id ?? user.email} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-4">
                       {user.profile_photo ? (

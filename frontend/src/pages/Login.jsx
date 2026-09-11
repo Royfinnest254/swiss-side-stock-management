@@ -13,7 +13,6 @@ export default function Login() {
   
   const [recoveryModal, setRecoveryModal] = useState(false);
   const [recoveryEmail, setRecoveryEmail] = useState('');
-  const [showForgotMsg, setShowForgotMsg] = useState(false);
   const [recoveryError, setRecoveryError] = useState('');
   const [recoverySuccess, setRecoverySuccess] = useState(false);
   
@@ -104,7 +103,6 @@ export default function Login() {
                   type="button"
                   onClick={() => {
                     setRecoveryEmail(email);
-                    setShowForgotMsg(false);
                     setRecoveryModal(true);
                   }}
                   className="text-[10px] font-black text-[#A0604E] uppercase tracking-widest hover:underline"
@@ -126,6 +124,7 @@ export default function Login() {
                   type="button"
                   onClick={() => setShowPass(!showPass)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#A0604E] p-1"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
                 >
                   {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -156,7 +155,7 @@ export default function Login() {
           <div className="p-6 text-center space-y-6">
             <div className="w-16 h-16 bg-[#EAF3DE] text-[#3B6D11] rounded-full flex items-center justify-center mx-auto">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
             <div className="space-y-2">

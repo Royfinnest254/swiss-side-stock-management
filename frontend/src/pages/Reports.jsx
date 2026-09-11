@@ -1,14 +1,14 @@
-import { useState, useEffect } from 'react';
+import { createElement, useState, useEffect } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import { BarChart3, Mail, Calendar, Filter, ArrowUpRight, ArrowDownLeft, TrendingUp, Package, ShoppingCart, Loader2, Clock, CheckCircle, RefreshCw, ShoppingBag, List, CheckSquare, DollarSign, Download } from 'lucide-react';
 
-const ReportStat = ({ label, value, icon: Icon, color, loading }) => (
+const ReportStat = ({ label, value, icon: ReportIcon, color, loading }) => (
   <div className="bg-white border border-[#F3F4F6] rounded-[24px] p-8 shadow-sm group hover:shadow-md transition-all">
     <div className="flex justify-between items-start mb-4">
       <div className="w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:scale-110" style={{ backgroundColor: `${color}15`, color }}>
-        <Icon size={24} />
+        {createElement(ReportIcon, { size: 24 })}
       </div>
       <div className="text-[10px] font-black uppercase tracking-[0.3em] text-[#9CA3AF] mt-1">{label}</div>
     </div>
@@ -23,11 +23,32 @@ const ReportStat = ({ label, value, icon: Icon, color, loading }) => (
   </div>
 );
 
+const REPORT_PERIODS = [
+  { value: '24h', label: '24 hours' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: '6m', label: '6 months' },
+  { value: '12m', label: '12 months' },
+  { value: 'all', label: 'All time' },
+];
+
+function getDateRange(period) {
+  const to = new Date();
+  const from = new Date(to);
+  if (period === '24h') from.setDate(from.getDate() - 1);
+  else if (period === '7d') from.setDate(from.getDate() - 7);
+  else if (period === '30d') from.setDate(from.getDate() - 30);
+  else if (period === '6m') from.setMonth(from.getMonth() - 6);
+  else if (period === '12m') from.setFullYear(from.getFullYear() - 1);
+  else from.setFullYear(2000, 0, 1);
+  const format = (date) => date.toISOString().slice(0, 10);
+  return { from: format(from), to: format(to) };
+}
+
 export default function Reports() {
   // Analytics State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [stats, setStats] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [dateRange, setDateRange] = useState('7d');
@@ -59,21 +80,19 @@ export default function Reports() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [dateRange]);
-
-  const fetchData = async () => {
+  async function fetchData() {
     setLoading(true);
     setError(false);
     try {
-      const [summaryRes, transRes, analyticsRes] = await Promise.all([
-        api.get('/reports/summary'),
-        api.get('/kitchen/transactions'),
+      const [transRes, analyticsRes] = await Promise.all([
+        api.get(`/reports/movements?${new URLSearchParams({
+          from: getDateRange(dateRange).from,
+          to: getDateRange(dateRange).to,
+          limit: '100',
+        })}`),
         api.get('/reports/analytics')
       ]);
-      setStats(summaryRes);
-      setTransactions(transRes.results || transRes);
+      setTransactions(Array.isArray(transRes) ? transRes : transRes.results || []);
       setAnalytics(analyticsRes);
     } catch (err) {
       console.error('[Fetch Analytics Error]', err);
@@ -82,7 +101,12 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(fetchData, 0);
+    return () => clearTimeout(timer);
+  }, [dateRange]);
 
   const handleEmailReport = async (e) => {
     e.preventDefault();
@@ -121,6 +145,12 @@ export default function Reports() {
           <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">Operational Intelligence</h1>
         </div>
         <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleDownloadStatement}
+            className="h-12 px-6 bg-white text-[#1A1A1A] border border-[#E5E7EB] rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-[#F9FAFB] transition-all"
+          >
+            <Download size={16} /> Download Statement
+          </button>
           <button 
             onClick={() => setEmailModalOpen(true)}
             className="h-12 px-6 bg-[#1A1A1A] text-white rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-black transition-all shadow-premium"
@@ -131,6 +161,20 @@ export default function Reports() {
       </div>
 
       <div className="space-y-12 animate-in fade-in duration-300">
+          <div className="flex flex-wrap items-center gap-2" aria-label="Movement ledger period">
+            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#9CA3AF] mr-2">Ledger period</span>
+            {REPORT_PERIODS.map((period) => (
+              <button
+                key={period.value}
+                type="button"
+                onClick={() => setDateRange(period.value)}
+                aria-pressed={dateRange === period.value}
+                className={`h-9 px-4 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${dateRange === period.value ? 'bg-[#A0604E] text-white' : 'bg-[#F3F4F6] text-[#6B7280] hover:bg-[#E5E7EB]'}`}
+              >
+                {period.label}
+              </button>
+            ))}
+          </div>
           {error ? (
             <div className="bg-red-50 border border-red-200 rounded-[24px] p-8 text-center max-w-lg mx-auto">
               <Package className="mx-auto text-red-400 mb-4 animate-bounce" size={40} />
@@ -196,6 +240,7 @@ export default function Reports() {
                           <thead>
                             <tr className="bg-gray-50 border-b border-[#F3F4F6]">
                               <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Timestamp</th>
+                              <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Module</th>
                               <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Item</th>
                               <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Action</th>
                               <th className="p-5 text-[10px] font-black uppercase tracking-wider text-[#9CA3AF]">Qty</th>
@@ -205,6 +250,7 @@ export default function Reports() {
                             {transactions.slice(0, 10).map(t => (
                               <tr key={t.id} className="hover:bg-[#F9FAFB] border-b border-[#F3F4F6] transition-colors">
                                 <td className="p-5"><span className="text-[12px] font-bold text-[#6B7280]">{new Date(t.transaction_date || t.created_at).toLocaleDateString()}</span></td>
+                                <td className="p-5"><span className="text-[10px] font-black text-[#A0604E] uppercase tracking-wider">{t.module}</span></td>
                                 <td className="p-5"><span className="font-bold text-[#1A1A1A] uppercase tracking-tight">{t.item_name}</span></td>
                                 <td className="p-5">
                                   <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${
@@ -218,7 +264,7 @@ export default function Reports() {
                             ))}
                             {transactions.length === 0 && (
                               <tr>
-                                <td colSpan={4} className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">No transaction history logged for this period.</td>
+                                <td colSpan={5} className="p-12 text-center text-slate-400 font-bold uppercase tracking-widest text-[10px]">No transaction history logged for this period.</td>
                               </tr>
                             )}
                           </tbody>
@@ -276,14 +322,7 @@ export default function Reports() {
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Time Period</label>
             <div className="flex flex-wrap gap-2">
-              {[
-                { value: '24h', label: 'Last 24h' },
-                { value: '7d', label: 'Last 7 Days' },
-                { value: '30d', label: 'Last 30 Days' },
-                { value: '6m', label: 'Last 6 Months' },
-                { value: '12m', label: 'Last 12 Months' },
-                { value: 'all', label: 'All Time' }
-              ].map(opt => (
+              {REPORT_PERIODS.map(opt => (
                 <button
                   key={opt.value}
                   type="button"

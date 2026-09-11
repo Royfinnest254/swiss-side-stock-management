@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, CookingPot, Flower2, ShoppingBag, 
   Dumbbell, Truck, WashingMachine, BarChart3, ListChecks, 
-  Users, Trash2, ClipboardList, Home, X, Menu, Folder
+  Users, Trash2, ClipboardList, Home, X, Folder, Settings
 } from 'lucide-react';
 
 const MENU_ITEMS = [
@@ -18,6 +17,7 @@ const MENU_ITEMS = [
   { label: 'Needs', path: '/needs', icon: ClipboardList },
   { label: 'General Supplies', path: '/general-supplies', icon: Folder },
   { label: 'Reports', path: '/reports', icon: BarChart3 },
+  { label: 'Settings', path: '/settings', icon: Settings },
 ];
 
 const ADMIN_ITEMS = [
@@ -26,9 +26,8 @@ const ADMIN_ITEMS = [
   { label: 'Audit Logs', path: '/admin/logs', icon: ClipboardList },
 ];
 
-export default function Sidebar({ sidebarOpen, setSidebarOpen, isMobile }) {
+export default function Sidebar({ setSidebarOpen, isMobile }) {
   const role = localStorage.getItem('swiss_side_role');
-  const location = useLocation();
 
   const navItemClass = ({ isActive }) => `
     flex items-center gap-2.5 px-4 h-[48px] transition-all duration-300 rounded-xl group relative
@@ -45,6 +44,7 @@ export default function Sidebar({ sidebarOpen, setSidebarOpen, isMobile }) {
       {isMobile && (
         <button 
           onClick={() => setSidebarOpen(false)}
+          aria-label="Close navigation"
           className="absolute top-6 right-6 p-2 text-[#6B7280] hover:text-[#A0604E]"
         >
           <X size={24} />
