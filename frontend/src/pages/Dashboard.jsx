@@ -5,7 +5,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 
 const StatCard = ({ label, value, description, color, loading }) => (
-  <div className={`bg-white rounded-2xl p-6 shadow-sm border-l-[3px] border-[${color}] border-t border-r border-b border-[#F3F4F6] transition-all hover:shadow-md animate-in fade-in duration-500`}>
+  <div style={{ borderLeftColor: color }} className="bg-white rounded-2xl p-6 shadow-sm border-l-[3px] border-t border-r border-b border-[#F3F4F6] transition-all hover:shadow-md animate-in fade-in duration-500">
     <div className="flex flex-col">
       <span className="text-[11px] font-black uppercase tracking-[0.2em] text-[#9CA3AF] mb-1">{label}</span>
       {loading ? (
@@ -18,7 +18,7 @@ const StatCard = ({ label, value, description, color, loading }) => (
   </div>
 );
 
-const DepartmentCard = ({ name, total, lowCount, loading }) => {
+const DepartmentCard = ({ name, total, lowCount }) => {
   let status = 'Operational';
   let badgeColor = 'bg-[#EAF3DE] text-[#639922]';
   
@@ -94,7 +94,7 @@ export default function Dashboard() {
         pendingMaintenance: (maintenance || []).filter(m => m.status === 'pending').slice(0, 5),
         openNeeds: (needs || []).slice(0, 5)
       });
-    } catch (err) {
+    } catch {
       toast.error('Failed to sync system analytics');
     } finally {
       setLoading(false);
@@ -102,7 +102,8 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchData();
+    const timer = setTimeout(fetchData, 0);
+    return () => clearTimeout(timer);
   }, []);
 
   const modules = [
@@ -129,7 +130,7 @@ export default function Dashboard() {
             >
               {loading ? <Loader2 className="animate-spin" size={10} /> : (
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               )}
               <span>Sync Now</span>
@@ -155,7 +156,6 @@ export default function Dashboard() {
               name={mod.name} 
               total={data.metrics[mod.key]?.total || 0} 
               lowCount={data.lowStockItems.filter(i => i.module === mod.name).length}
-              loading={loading}
             />
           ))}
         </div>

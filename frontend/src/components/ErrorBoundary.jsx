@@ -7,7 +7,7 @@ class ErrorBoundary extends React.Component {
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError() {
     return { hasError: true };
   }
 
@@ -25,7 +25,7 @@ class ErrorBoundary extends React.Component {
             </div>
             <h1 className="text-2xl font-black text-[#1A1A1A] uppercase tracking-tight mb-4">Something went wrong</h1>
             <p className="text-[14px] text-[#6B7280] leading-relaxed mb-10">
-              The application encountered an unexpected error. This has been logged for administrative review.
+              The application encountered an unexpected error. Reload the page to try again, or contact an administrator if it persists.
             </p>
             <button 
               onClick={() => window.location.reload()}

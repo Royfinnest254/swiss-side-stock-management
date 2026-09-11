@@ -15,12 +15,12 @@ export function useApiQuery(path, deps = []) {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     try {
-      const result = await api.get(path);
+      const result = await api.get(path, { signal: abortRef.current.signal });
       setData(result);
       setError(null);
     } catch (err) {
-      if (err.name !== 'AbortError') {
-        setError(err.message);
+      if (err.name !== 'AbortError' && err.code !== 'ERR_CANCELED') {
+        setError(err.error || err.message || 'Unable to load data');
         console.error(`useApiQuery[${path}]:`, err);
       }
     }

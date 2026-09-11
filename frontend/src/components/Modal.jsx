@@ -1,16 +1,39 @@
 import { X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useId, useRef } from 'react';
 
 export default function Modal({ isOpen, onClose, title, children, footer }) {
+  const titleId = useId();
+  const dialogRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
+
   // Prevent scrolling when modal is open
   useEffect(() => {
     if (isOpen) {
+      previouslyFocusedRef.current = document.activeElement;
       document.body.style.overflow = 'hidden';
+      const frame = requestAnimationFrame(() => dialogRef.current?.focus());
+      const onKeyDown = (event) => {
+        if (event.key === 'Escape') onClose();
+        if (event.key !== 'Tab' || !dialogRef.current) return;
+        const focusable = dialogRef.current.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        const elements = [...focusable];
+        if (!elements.length) return;
+        const first = elements[0];
+        const last = elements[elements.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      };
+      document.addEventListener('keydown', onKeyDown);
+      return () => {
+        cancelAnimationFrame(frame);
+        document.removeEventListener('keydown', onKeyDown);
+        document.body.style.overflow = '';
+        previouslyFocusedRef.current?.focus?.();
+      };
     } else {
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = '';
     }
-    return () => { document.body.style.overflow = 'unset'; };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -23,7 +46,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
       />
 
       {/* Modal Content */}
-      <div className="relative w-full md:max-w-[600px] bg-white shadow-2xl overflow-hidden
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="relative w-full md:max-w-[600px] bg-white shadow-2xl overflow-hidden
                     h-[auto] max-h-[90dvh] md:max-h-[85vh] md:rounded-[32px] flex flex-col
                     animate-in slide-in-from-bottom duration-500 md:slide-in-from-top-4
                     rounded-t-[40px] md:rounded-b-[32px] border-t border-[#F3F4F6] md:border-none">
@@ -37,7 +60,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
         <div className="px-8 h-20 md:h-24 flex items-center justify-between border-b border-[#F3F4F6] bg-white">
           <div>
             <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-1.5">Swiss Side Protocol</span>
-            <h2 className="text-xl md:text-2xl font-black text-[#1A1A1A] tracking-tight uppercase">{title}</h2>
+            <h2 id={titleId} className="text-xl md:text-2xl font-black text-[#1A1A1A] tracking-tight uppercase">{title}</h2>
           </div>
           <button 
             onClick={onClose}

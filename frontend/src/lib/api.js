@@ -27,19 +27,24 @@ api.interceptors.response.use((response) => {
       window.location.href = '/login';
     }
   }
-  return Promise.reject(error.response?.data || error);
+  const payload = error.response?.data;
+  const normalizedError = payload instanceof Blob
+    ? error
+    : Object.assign(error, payload && typeof payload === 'object' ? payload : {});
+  return Promise.reject(normalizedError);
 });
 
 // Multipart form upload helper
-api.postForm = async (url, formData) => {
-  const token = localStorage.getItem('swiss_side_session');
-  const response = await axios.post(`/api${url}`, formData, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'multipart/form-data'
-    }
-  });
-  return response.data;
-};
+api.postForm = (url, formData, config = {}) => api.post(url, formData, {
+  ...config,
+  headers: {
+    ...config.headers,
+    'Content-Type': 'multipart/form-data',
+  },
+});
+
+export function getApiErrorMessage(error, fallback = 'Something went wrong') {
+  return error?.error || error?.message || fallback;
+}
 
 export default api;

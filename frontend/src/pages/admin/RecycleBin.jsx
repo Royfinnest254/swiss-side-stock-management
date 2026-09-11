@@ -73,7 +73,7 @@ export default function RecycleBin() {
   };
 
   const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(filters.search.toLowerCase())
+    (item.name || '').toLowerCase().includes(filters.search.toLowerCase())
   );
 
   return (

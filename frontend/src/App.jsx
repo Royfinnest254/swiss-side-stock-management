@@ -1,8 +1,9 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Loader2 } from 'lucide-react';
+import api from './lib/api';
 
 // Lazy load pages for dynamic code-splitting and performance tuning
 const Login = lazy(() => import('./pages/Login'));
@@ -37,9 +38,27 @@ function SuspenseFallback() {
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const token = localStorage.getItem('swiss_side_session');
-  const role = localStorage.getItem('swiss_side_role');
+  const [session, setSession] = useState(token ? 'checking' : 'missing');
+  const [role, setRole] = useState(null);
 
-  if (!token) return <Navigate to="/login" replace />;
+  useEffect(() => {
+    if (!token) return undefined;
+    let active = true;
+    api.get('/auth/me')
+      .then((user) => {
+        if (!active) return;
+        localStorage.setItem('swiss_side_user', user.email);
+        localStorage.setItem('swiss_side_role', user.role);
+        localStorage.setItem('swiss_side_display_name', user.display_name || user.email);
+        setRole(user.role);
+        setSession('valid');
+      })
+      .catch(() => { if (active) setSession('invalid'); });
+    return () => { active = false; };
+  }, [token]);
+
+  if (!token || session === 'invalid') return <Navigate to="/login" replace />;
+  if (session === 'checking') return <SuspenseFallback />;
   if (adminOnly && role !== 'admin') return <Navigate to="/dashboard" replace />;
 
   return children;
