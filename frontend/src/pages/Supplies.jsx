@@ -287,7 +287,7 @@ export default function Supplies() {
                   <tr>
                     <th className="px-6 py-4">Item</th>
                     <th className="px-6 py-4">Stock</th>
-                    <th className="px-6 py-4">Unit Price</th>
+                    <th className="hidden md:table-cell px-6 py-4">Unit Price</th>
                     <th className="hidden lg:table-cell px-6 py-4">Total Value</th>
                     <th className="hidden md:table-cell px-6 py-4">Status</th>
                     <th className="text-right px-6 py-4">Actions</th>
@@ -319,10 +319,13 @@ export default function Supplies() {
                           {item.is_folder ? (
                             <span className="px-3 py-1 rounded-lg bg-[#EAE3F0] text-[#692994] text-[9px] font-black uppercase tracking-[0.15em]">FOLDER</span>
                           ) : (
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
-                              <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit || 'pcs'}</span>
-                            </div>
+                            <>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
+                                <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit || 'pcs'}</span>
+                              </div>
+                              <span className="md:hidden mt-1 block text-[10px] font-black text-[#A0604E] uppercase tracking-widest">Price: KES {item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
+                            </>
                           )}
                         </td>
                         <td className="px-6 py-4">
