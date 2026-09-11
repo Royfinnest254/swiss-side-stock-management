@@ -165,7 +165,7 @@ export default function GeneralSupplies() {
               <tr className="bg-[#F9FAFB]">
                 <th className="px-6 py-4">Supply Detail</th>
                 <th className="px-6 py-4">Stock Balance</th>
-                <th className="px-6 py-4">Unit Price</th>
+                <th className="hidden md:table-cell px-6 py-4">Unit Price</th>
                 <th className="hidden lg:table-cell px-6 py-4">Total Value</th>
                 <th className="hidden md:table-cell px-6 py-4">Status</th>
                 <th className="text-right px-6 py-4">Actions</th>
@@ -194,10 +194,13 @@ export default function GeneralSupplies() {
                       {item.is_folder ? (
                         <span className="px-3 py-1 rounded-lg bg-orange-100/50 text-[#A0604E] text-[9px] font-black uppercase tracking-[0.15em]">Group Folder</span>
                       ) : (
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
-                          <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
-                        </div>
+                        <>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
+                            <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
+                          </div>
+                          <span className="md:hidden mt-1 block text-[10px] font-black text-[#A0604E] uppercase tracking-widest">Price: KES {item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
+                        </>
                       )}
                     </td>
                     <td className="px-6 py-4">
