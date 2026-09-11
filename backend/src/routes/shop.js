@@ -109,7 +109,10 @@ router.post('/restock', async (req, res) => {
       if (selectedDate > today) return res.status(400).json({ error: 'Restock date cannot be in the future.' });
     }
 
-    await pool.query('UPDATE shop_items SET quantity = quantity + ?, last_restocked_at = NOW() WHERE id = ?', [qty, item_id]);
+    await pool.query(
+      'UPDATE shop_items SET quantity = quantity + ?, last_restocked_at = NOW(), unit_price = COALESCE(?, unit_price) WHERE id = ?',
+      [qty, unit_price_paid, item_id]
+    );
     await pool.query(
       'INSERT INTO shop_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?, ?)',
       [item_id, qty, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]

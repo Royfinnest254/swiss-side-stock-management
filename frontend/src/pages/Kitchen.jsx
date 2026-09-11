@@ -293,7 +293,7 @@ export default function Kitchen() {
                     <th className="px-6 py-4">Item</th>
                     <th className="hidden md:table-cell px-6 py-4">Category</th>
                     <th className="px-6 py-4">Stock</th>
-                    <th className="hidden md:table-cell px-6 py-4">Unit Price</th>
+                    <th className="px-6 py-4">Unit Price</th>
                     <th className="hidden lg:table-cell px-6 py-4">Total Value</th>
                     <th className="hidden md:table-cell px-6 py-4">Status</th>
                     <th className="text-right px-6 py-4">Actions</th>
@@ -319,7 +319,7 @@ export default function Kitchen() {
                             </div>
                           </div>
                         </td>
-                        <td className="hidden md:table-cell px-6 py-4">
+                        <td className="px-6 py-4">
                           {item.is_folder ? (
                             <span className="text-[9px] font-black text-[#9CA3AF] uppercase tracking-widest">N/A</span>
                           ) : (
