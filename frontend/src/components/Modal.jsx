@@ -5,6 +5,14 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
   const titleId = useId();
   const dialogRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  // Parents commonly create the close handler inline. Keeping the latest
+  // handler in a ref prevents an open modal from tearing down and stealing
+  // focus again after every keystroke in one of its inputs.
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // Prevent scrolling when modal is open
   useEffect(() => {
@@ -13,7 +21,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
       document.body.style.overflow = 'hidden';
       const frame = requestAnimationFrame(() => dialogRef.current?.focus());
       const onKeyDown = (event) => {
-        if (event.key === 'Escape') onClose();
+        if (event.key === 'Escape') onCloseRef.current();
         if (event.key !== 'Tab' || !dialogRef.current) return;
         const focusable = dialogRef.current.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
         const elements = [...focusable];
@@ -33,7 +41,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
     } else {
       document.body.style.overflow = '';
     }
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

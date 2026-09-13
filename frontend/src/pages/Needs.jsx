@@ -513,7 +513,12 @@ export default function Needs() {
   });
 
   const totalItems = listItems.length;
-  const calculateListTotal = () => listItems.reduce((sum, i) => sum + (i.quantity * (i.price_per_unit || 0)), 0);
+  const getListItemQuantity = (item) => parseFloat(item.suggested_quantity ?? item.quantity ?? 0) || 0;
+  const getListItemTotal = (item) => {
+    const savedTotal = Number(item.total_cost);
+    return Number.isFinite(savedTotal) ? savedTotal : getListItemQuantity(item) * (parseFloat(item.price_per_unit) || 0);
+  };
+  const calculateListTotal = () => listItems.reduce((sum, item) => sum + getListItemTotal(item), 0);
 
   if (loading && !needs.length) return (
     <div className="h-[60vh] flex items-center justify-center">
@@ -1048,7 +1053,7 @@ export default function Needs() {
                                 <span className="text-green-700 text-sm">KES {parseFloat((item.actual_price_paid || item.price_paid || 0) * (item.suggested_quantity || item.quantity || 1)).toLocaleString()}</span>
                               </div>
                             ) : (
-                              <span>KES {parseFloat((item.suggested_quantity || item.quantity || 1) * (item.price_per_unit || 0)).toLocaleString()}</span>
+                            <span>KES {getListItemTotal(item).toLocaleString()}</span>
                             )}
                           </td>
                           <td className="py-4 text-right no-print">
@@ -1082,6 +1087,13 @@ export default function Needs() {
                           <td colSpan={6} className="text-center py-12 text-[#9CA3AF] uppercase text-[10px] font-black tracking-widest">
                             No items added to this procurement list yet.
                           </td>
+                        </tr>
+                      )}
+                      {listItems.length > 0 && (
+                        <tr className="bg-[#FAF9F7] border-t-2 border-[#E0DBD6]">
+                          <td colSpan={4} className="py-5 font-black text-right uppercase tracking-widest text-xs text-[#1A1A1A]">Shopping List Total</td>
+                          <td className="py-5 font-black text-right text-[#A0604E] text-lg">KES {calculateListTotal().toLocaleString()}</td>
+                          <td className="no-print" />
                         </tr>
                       )}
                     </tbody>
