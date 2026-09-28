@@ -3,14 +3,18 @@ import { useEffect, useId, useRef } from 'react';
 
 export default function SlidePanel({ isOpen, onClose, title, children }) {
   const titleId = useId();
-  const panelRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!isOpen) return undefined;
-    const frame = requestAnimationFrame(() => panelRef.current?.focus());
-    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    const onKeyDown = (event) => { if (event.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKeyDown);
-    return () => { cancelAnimationFrame(frame); document.removeEventListener('keydown', onKeyDown); };
-  }, [isOpen, onClose]);
+    return () => { document.removeEventListener('keydown', onKeyDown); };
+  }, [isOpen]);
   if (!isOpen) return null;
 
   return (
@@ -22,7 +26,7 @@ export default function SlidePanel({ isOpen, onClose, title, children }) {
       />
 
       {/* Panel */}
-      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+      <div role="dialog" aria-modal="true" aria-labelledby={titleId}
         className="relative bg-white w-full max-w-[500px] h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
       >
         {/* Header */}

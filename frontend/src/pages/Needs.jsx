@@ -948,10 +948,11 @@ export default function Needs() {
                       <input 
                         type="number" 
                         className="input-field h-11 w-24 shrink-0" 
-                        value={itemForm.quantity}
-                        onChange={e => setItemForm({...itemForm, quantity: parseFloat(e.target.value) || 1})}
+                      value={itemForm.quantity}
+                      onChange={e => setItemForm({...itemForm, quantity: e.target.value})}
                         required
-                        min="1"
+                        min="0.01"
+                        step="0.01"
                       />
                       <input 
                         type="text" 
@@ -972,7 +973,7 @@ export default function Needs() {
                       className="input-field h-11" 
                       placeholder="0.00" 
                       value={itemForm.price_per_unit}
-                      onChange={e => setItemForm({...itemForm, price_per_unit: parseFloat(e.target.value) || 0})}
+                      onChange={e => setItemForm({...itemForm, price_per_unit: e.target.value})}
                       required
                       min="0"
                     />
@@ -1441,7 +1442,7 @@ export default function Needs() {
                 type="number" 
                 className="input-field" 
                 value={editItemForm.price_per_unit} 
-                onChange={e => setEditItemForm({...editItemForm, price_per_unit: parseFloat(e.target.value) || 0})} 
+                onChange={e => setEditItemForm({...editItemForm, price_per_unit: e.target.value})}
                 min="0"
                 required 
               />
@@ -1455,8 +1456,9 @@ export default function Needs() {
                 type="number" 
                 className="input-field" 
                 value={editItemForm.quantity} 
-                onChange={e => setEditItemForm({...editItemForm, quantity: parseFloat(e.target.value) || 1})} 
-                min="1"
+                onChange={e => setEditItemForm({...editItemForm, quantity: e.target.value})}
+                min="0.01"
+                step="0.01"
                 required 
               />
             </div>

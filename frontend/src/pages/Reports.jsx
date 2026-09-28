@@ -2,7 +2,7 @@ import { createElement, useState, useEffect } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
-import { BarChart3, Mail, Calendar, Filter, ArrowUpRight, ArrowDownLeft, TrendingUp, Package, ShoppingCart, Loader2, Clock, CheckCircle, RefreshCw, ShoppingBag, List, CheckSquare, DollarSign, Download } from 'lucide-react';
+import { BarChart3, Mail, TrendingUp, Package, ShoppingCart, Loader2, Clock, RefreshCw, Download } from 'lucide-react';
 
 const ReportStat = ({ label, value, icon: ReportIcon, color, loading }) => (
   <div className="bg-white border border-[#F3F4F6] rounded-[24px] p-8 shadow-sm group hover:shadow-md transition-all">
@@ -24,7 +24,7 @@ const ReportStat = ({ label, value, icon: ReportIcon, color, loading }) => (
 );
 
 const REPORT_PERIODS = [
-  { value: '24h', label: '24 hours' },
+  { value: '24h', label: 'Today' },
   { value: '7d', label: '7 days' },
   { value: '30d', label: '30 days' },
   { value: '6m', label: '6 months' },
@@ -35,13 +35,18 @@ const REPORT_PERIODS = [
 function getDateRange(period) {
   const to = new Date();
   const from = new Date(to);
-  if (period === '24h') from.setDate(from.getDate() - 1);
-  else if (period === '7d') from.setDate(from.getDate() - 7);
-  else if (period === '30d') from.setDate(from.getDate() - 30);
-  else if (period === '6m') from.setMonth(from.getMonth() - 6);
-  else if (period === '12m') from.setFullYear(from.getFullYear() - 1);
-  else from.setFullYear(2000, 0, 1);
-  const format = (date) => date.toISOString().slice(0, 10);
+  if (period === '24h') { /* Today is represented as a calendar-day range. */ }
+  else if (period === '7d') from.setDate(from.getDate() - 6);
+  else if (period === '30d') from.setDate(from.getDate() - 29);
+  else if (period === '6m' || period === '12m') {
+    const originalDay = from.getDate();
+    from.setDate(1);
+    if (period === '6m') from.setMonth(from.getMonth() - 6);
+    else from.setFullYear(from.getFullYear() - 1);
+    from.setDate(Math.min(originalDay, new Date(from.getFullYear(), from.getMonth() + 1, 0).getDate()));
+  }
+  else from.setFullYear(1000, 0, 1);
+  const format = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return { from: format(from), to: format(to) };
 }
 
@@ -63,7 +68,7 @@ export default function Reports() {
   const handleDownloadStatement = async () => {
     const toastId = toast.loading('Compiling operations statement PDF...');
     try {
-      const response = await api.get('/reports/statement-download', { responseType: 'blob' });
+      const response = await api.get(`/reports/statement-download?period=${encodeURIComponent(dateRange)}`, { responseType: 'blob' });
       const blob = response instanceof Blob ? response : new Blob([response.data || response], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -84,13 +89,14 @@ export default function Reports() {
     setLoading(true);
     setError(false);
     try {
+      const range = getDateRange(dateRange);
       const [transRes, analyticsRes] = await Promise.all([
         api.get(`/reports/movements?${new URLSearchParams({
-          from: getDateRange(dateRange).from,
-          to: getDateRange(dateRange).to,
+          from: range.from,
+          to: range.to,
           limit: '100',
         })}`),
-        api.get('/reports/analytics')
+        api.get(`/reports/analytics?${new URLSearchParams(range)}`)
       ]);
       setTransactions(Array.isArray(transRes) ? transRes : transRes.results || []);
       setAnalytics(analyticsRes);
@@ -129,12 +135,7 @@ export default function Reports() {
     name: d.module,
     value: distributionTotal > 0 ? Math.round((d.count / distributionTotal) * 100) : 0,
     color: d.module === 'Kitchen' ? '#A0604E' : d.module === 'Spa' ? '#BA7517' : d.module === 'Gym' ? '#639922' : d.module === 'Laundry' ? '#E24B4A' : d.module === 'Supplies' ? '#2563EB' : '#10B981'
-  })) : [
-    { name: 'Kitchen', value: 45, color: '#A0604E' },
-    { name: 'Spa', value: 25, color: '#BA7517' },
-    { name: 'Gym', value: 15, color: '#639922' },
-    { name: 'Laundry', value: 15, color: '#E24B4A' }
-  ];
+  })) : [];
 
   return (
     <div className="space-y-10 animate-in fade-in duration-500">
@@ -175,6 +176,9 @@ export default function Reports() {
               </button>
             ))}
           </div>
+          <p className="text-xs text-[#6B7280] -mt-8">
+            Showing stock movement and request activity for {getDateRange(dateRange).from} through {getDateRange(dateRange).to}. Stock levels and low-stock alerts below reflect the current inventory snapshot.
+          </p>
           {error ? (
             <div className="bg-red-50 border border-red-200 rounded-[24px] p-8 text-center max-w-lg mx-auto">
               <Package className="mx-auto text-red-400 mb-4 animate-bounce" size={40} />
@@ -192,7 +196,7 @@ export default function Reports() {
               {/* Analytics Metric Cards Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <ReportStat 
-                  label="Stock Turnover" 
+                  label="Withdrawals"
                   value={(analytics?.stockTurnover ?? 0).toLocaleString()} 
                   icon={TrendingUp} 
                   color="#A0604E" 
@@ -213,7 +217,7 @@ export default function Reports() {
                   loading={loading}
                 />
                 <ReportStat 
-                  label="Movement Rate" 
+                  label="Withdrawal Share"
                   value={`${analytics?.movementRate ?? 0}%`} 
                   icon={BarChart3} 
                   color="#BA7517" 
@@ -225,7 +229,7 @@ export default function Reports() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-6">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#9CA3AF]">Movement Ledger Records</h2>
+                    <h2 className="text-[11px] font-black uppercase tracking-[0.4em] text-[#9CA3AF]">Latest 10 Movement Records</h2>
                     <Clock size={16} className="text-[#9CA3AF]" />
                   </div>
                   <div className="bg-white border border-[#F3F4F6] rounded-[32px] p-0 overflow-hidden shadow-sm">
