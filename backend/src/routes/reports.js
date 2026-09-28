@@ -4,11 +4,66 @@ const path = require('path');
 const { requireAuth } = require('../middleware/auth');
 const { sendCustomEmail } = require('../services/email');
 
+function isValidReportRange(from, to) {
+  const isDate = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  };
+  return isDate(from) && isDate(to) && from <= to;
+}
+
+function getReportRange(period) {
+  const end = new Date();
+  const start = new Date(end);
+  const dayCounts = { '24h': 1, '7d': 7, '30d': 30 };
+  if (period === '6m' || period === '12m') {
+    const originalDay = start.getDate();
+    start.setDate(1);
+    if (period === '6m') start.setMonth(start.getMonth() - 6);
+    else start.setFullYear(start.getFullYear() - 1);
+    start.setDate(Math.min(originalDay, new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()));
+  }
+  else if (period === 'all') start.setFullYear(1000, 0, 1);
+  else if (dayCounts[period]) start.setDate(start.getDate() - dayCounts[period] + 1);
+  else return null;
+  const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const nextDay = new Date(end);
+  nextDay.setDate(nextDay.getDate() + 1);
+  return { from: format(start), to: format(nextDay) };
+}
+
+function reportPeriodLabel(period) {
+  return ({ '24h': 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', '6m': 'Last 6 months', '12m': 'Last 12 months', all: 'All time' })[period];
+}
+
+function reportRangeLabel(range) {
+  const lastDay = new Date(`${range.to}T00:00:00`);
+  lastDay.setDate(lastDay.getDate() - 1);
+  const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return `${range.from} to ${format(lastDay)}`;
+}
+
+function parseListQuantity(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const text = String(value).trim();
+  if (!/^\d{1,8}(?:\.\d{1,2})?$/.test(text)) return null;
+  const quantity = Number(text);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+}
+
 router.use(requireAuth);
 
 // GET /api/reports/statement-download — Public/Secure printable statement PDF download
 router.get('/statement-download', async (req, res) => {
   try {
+    const period = req.query.period || 'all';
+    const reportRange = getReportRange(period);
+    if (!reportRange) return res.status(400).json({ error: 'Invalid report period.' });
     const dateStr = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
     const requesterName = req.user.display_name || 'Administrator';
 
@@ -69,7 +124,7 @@ router.get('/statement-download', async (req, res) => {
     const [needsRes] = await pool.query(`
       SELECT status, COALESCE(urgency, 'Medium') as urgency, COALESCE(item, '') as item, COALESCE(estimated_price, 0) as estimated_price, COALESCE(currency, 'KSH') as currency, created_at
       FROM needs
-      WHERE is_active = 1 AND status != 'fulfilled'
+      WHERE is_active = 1 AND status IN ('pending', 'approved', 'ordered')
       ORDER BY
         CASE COALESCE(urgency, 'Medium') WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
         created_at ASC
@@ -81,40 +136,40 @@ router.get('/statement-download', async (req, res) => {
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM kitchen_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Spa', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM spa_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Shop', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM shop_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Gym', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM gym_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Supplies', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM supplies_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Laundry', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM laundry_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-    `);
+      WHERE transaction_date >= ? AND transaction_date < ?
+    `, Array(6).fill([reportRange.from, reportRange.to]).flat());
 
-    // Fetch all stock items for complete listing
+    // Fetch all stock items for the complete statement PDF.
     const [allStock] = await pool.query(`
       SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
@@ -130,22 +185,23 @@ router.get('/statement-download', async (req, res) => {
       ORDER BY module, name
     `);
 
-    // Fetch stock summary per department
+    // Count inventory records per department. Quantities use different units,
+    // so summing them across items would not represent a useful stock total.
     const [stockSummary] = await pool.query(`
-      SELECT 'Kitchen' as module, COUNT(*) as item_count, COALESCE(SUM(quantity), 0) as total_quantity FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Kitchen' as module, COUNT(*) as item_count FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Spa', COUNT(*), COALESCE(SUM(quantity), 0) FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Spa', COUNT(*) FROM spa_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Shop', COUNT(*), COALESCE(SUM(quantity), 0) FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Shop', COUNT(*) FROM shop_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Gym', COUNT(*), COALESCE(SUM(quantity), 0) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Gym', COUNT(*) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Supplies', COUNT(*), COALESCE(SUM(quantity), 0) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Supplies', COUNT(*) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Laundry', COUNT(*), COALESCE(SUM(quantity), 0) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Laundry', COUNT(*) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
     `);
 
-    const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary);
+    const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary, period);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="Swiss_Side_Operations_Statement.pdf"');
@@ -187,55 +243,53 @@ router.get('/summary', async (req, res) => {
 // GET /api/reports/analytics — Dynamic operational analytics for dashboard
 router.get('/analytics', async (req, res) => {
   try {
+    const { from, to } = req.query;
+    if (!isValidReportRange(from, to)) {
+      return res.status(400).json({ error: 'Valid from and to dates are required.' });
+    }
     const [kitchenTx, spaTx, shopTx, gymTx, suppliesTx, laundryTx, lowStockCountRes, fulfilledRes, distributionRes] = await Promise.all([
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM kitchen_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM spa_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM shop_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM gym_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM supplies_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN quantity ELSE 0 END), 0) as withdrawals,
-          COALESCE(SUM(CASE WHEN action = 'restock' THEN quantity ELSE 0 END), 0) as restocks,
-          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count
+          COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawal_tx_count,
+          COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restock_tx_count
         FROM laundry_transactions 
-        WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-      `),
+        WHERE transaction_date >= ? AND transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT COUNT(*) as count FROM (
           SELECT id FROM kitchen_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
@@ -254,8 +308,8 @@ router.get('/analytics', async (req, res) => {
       pool.query(`
         SELECT COUNT(*) as count FROM needs 
         WHERE status = 'fulfilled' AND is_active = 1 
-          AND MONTH(created_at) = MONTH(NOW()) AND YEAR(created_at) = YEAR(NOW())
-      `),
+          AND resolved_at >= ? AND resolved_at < DATE_ADD(?, INTERVAL 1 DAY)
+      `, [from, to]),
       pool.query(`
         SELECT 'Kitchen' as module, COUNT(*) as count FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
         UNION ALL
@@ -271,32 +325,23 @@ router.get('/analytics', async (req, res) => {
       `)
     ]);
 
-    const totalWithdrawalsQty = 
-      parseFloat(kitchenTx[0][0].withdrawals || 0) +
-      parseFloat(spaTx[0][0].withdrawals || 0) +
-      parseFloat(shopTx[0][0].withdrawals || 0) +
-      parseFloat(gymTx[0][0].withdrawals || 0) +
-      parseFloat(suppliesTx[0][0].withdrawals || 0) +
-      parseFloat(laundryTx[0][0].withdrawals || 0);
-
-    const totalRestocksQty = 
-      parseFloat(kitchenTx[0][0].restocks || 0) +
-      parseFloat(spaTx[0][0].restocks || 0) +
-      parseFloat(shopTx[0][0].restocks || 0) +
-      parseFloat(gymTx[0][0].restocks || 0) +
-      parseFloat(suppliesTx[0][0].restocks || 0) +
-      parseFloat(laundryTx[0][0].restocks || 0);
-
-    const totalMovements = totalWithdrawalsQty + totalRestocksQty;
-    const movementRate = totalMovements === 0 ? 0 : Math.round((totalWithdrawalsQty / totalMovements) * 100 * 10) / 10;
-
-    const stockTurnover = 
+    const totalWithdrawalTransactions =
       parseInt(kitchenTx[0][0].withdrawal_tx_count || 0) +
       parseInt(spaTx[0][0].withdrawal_tx_count || 0) +
       parseInt(shopTx[0][0].withdrawal_tx_count || 0) +
       parseInt(gymTx[0][0].withdrawal_tx_count || 0) +
       parseInt(suppliesTx[0][0].withdrawal_tx_count || 0) +
       parseInt(laundryTx[0][0].withdrawal_tx_count || 0);
+
+    const totalRestockTransactions =
+      parseInt(kitchenTx[0][0].restock_tx_count || 0) +
+      parseInt(spaTx[0][0].restock_tx_count || 0) +
+      parseInt(shopTx[0][0].restock_tx_count || 0) +
+      parseInt(gymTx[0][0].restock_tx_count || 0) +
+      parseInt(suppliesTx[0][0].restock_tx_count || 0) +
+      parseInt(laundryTx[0][0].restock_tx_count || 0);
+    const totalMovementTransactions = totalWithdrawalTransactions + totalRestockTransactions;
+    const movementRate = totalMovementTransactions === 0 ? 0 : Math.round((totalWithdrawalTransactions / totalMovementTransactions) * 1000) / 10;
 
     const itemsBelowThreshold = parseInt(lowStockCountRes[0][0].count || 0);
     const fulfilledRequests = parseInt(fulfilledRes[0][0].count || 0);
@@ -307,7 +352,7 @@ router.get('/analytics', async (req, res) => {
     }));
 
     res.json({
-      stockTurnover,
+      stockTurnover: totalWithdrawalTransactions,
       itemsBelowThreshold,
       fulfilledRequests,
       movementRate,
@@ -336,37 +381,37 @@ router.get('/movements', async (req, res) => {
       moduleName: 'Kitchen',
       query: `SELECT 'Kitchen' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM kitchen_transactions t JOIN kitchen_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     },
     spa: {
       moduleName: 'Spa',
       query: `SELECT 'Spa' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM spa_transactions t JOIN spa_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     },
     shop: {
       moduleName: 'Shop',
       query: `SELECT 'Shop' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM shop_transactions t JOIN shop_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     },
     gym: {
       moduleName: 'Gym',
       query: `SELECT 'Gym' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM gym_transactions t JOIN gym_inventory i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     },
     supplies: {
       moduleName: 'Supplies',
       query: `SELECT 'Supplies' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM supplies_transactions t JOIN supplies_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     },
     laundry: {
       moduleName: 'Laundry',
       query: `SELECT 'Laundry' as module, i.name as item_name, t.action, t.quantity, t.transaction_date, u.display_name as action_by
               FROM laundry_transactions t JOIN laundry_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
-              WHERE t.transaction_date BETWEEN ? AND ?`
+              WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)`
     }
   };
 
@@ -484,7 +529,7 @@ const PDFDocument = require('pdfkit');
 const { sendDetailedReportWithAttachment } = require('../services/email');
 
 // Helper to generate a clean, emoji-free professional PDF report statement with custom cover page and digital layout
-function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock = [], stockSummary = []) {
+function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock = [], stockSummary = [], period = 'all') {
   const cleanText = (str) => String(str || '').replace(/[^\x00-\x7F]/g, "").trim();
   return new Promise((resolve, reject) => {
     try {
@@ -520,7 +565,7 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
       doc.fillColor(gray).font('Helvetica').fontSize(8)
          .text(cleanText(`Report Date: ${dateStr}`), 380, 42, { align: 'right', width: 175 })
          .text(cleanText(`Issued By: ${requesterName.toUpperCase()}`), 380, 54, { align: 'right', width: 175 })
-         .text(cleanText('Security: Restricted / Internal Operations'), 380, 66, { align: 'right', width: 175 });
+         .text(cleanText(`Movement period: ${reportPeriodLabel(period)}`), 380, 66, { align: 'right', width: 175 });
 
       // Terracotta Divider bar
       doc.rect(40, 84, 515, 2.5).fill(primaryColor);
@@ -705,7 +750,7 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
 
       // SECTION 5: TRANSACTION VOLUMES
       checkPageBreak(90);
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText("5. THIS CALENDAR MONTH'S TRANSACTION VOLUMES"), 40, y);
+      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText("5. SELECTED PERIOD'S TRANSACTION VOLUMES"), 40, y);
       y += 20;
 
       let totalWithdrawalsCount = 0;
@@ -751,9 +796,8 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
       y += 20;
 
       const sumCols = [
-        { title: 'Department Module', key: 'module', x: 45, w: 250 },
-        { title: 'Distinct Items Count', key: 'itemCountStr', x: 300, w: 120, align: 'right' },
-        { title: 'Total Quantity in Stock', key: 'totalQtyStr', x: 430, w: 120, align: 'right' }
+        { title: 'Department Module', key: 'module', x: 45, w: 350 },
+        { title: 'Distinct Items Count', key: 'itemCountStr', x: 430, w: 120, align: 'right' }
       ];
       drawTableHeader(y, sumCols);
       y += 22;
@@ -762,8 +806,7 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
         checkPageBreak(30);
         const rowData = {
           module: `${(row.module || '').toUpperCase()} INVENTORY`,
-          itemCountStr: `${row.item_count || 0} item(s)`,
-          totalQtyStr: parseFloat(row.total_quantity || 0).toLocaleString()
+          itemCountStr: `${row.item_count || 0} item(s)`
         };
         drawTableRow(y, sumCols, rowData);
         y += 22;
@@ -810,9 +853,12 @@ function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, mo
 // POST /api/reports/email — Compile and email HTML summary report OR detailed PDF attachment
 router.post('/email', async (req, res) => {
   const { email, format } = req.body;
+  const period = req.body.period || '7d';
+  const reportRange = getReportRange(period);
   if (!email) {
     return res.status(400).json({ error: 'Email address is required.' });
   }
+  if (!reportRange) return res.status(400).json({ error: 'Invalid report period.' });
 
   const isDetailed = format === 'detailed';
 
@@ -878,7 +924,7 @@ router.post('/email', async (req, res) => {
     const [needsRes] = await pool.query(`
       SELECT status, COALESCE(urgency, 'Medium') as urgency, COALESCE(item, '') as item, COALESCE(estimated_price, 0) as estimated_price, COALESCE(currency, 'KSH') as currency, created_at
       FROM needs
-      WHERE is_active = 1 AND status != 'fulfilled'
+      WHERE is_active = 1 AND status IN ('pending', 'approved', 'ordered')
       ORDER BY
         CASE COALESCE(urgency, 'Medium') WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
         created_at ASC
@@ -895,38 +941,38 @@ router.post('/email', async (req, res) => {
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM kitchen_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Spa', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM spa_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Shop', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM shop_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Gym', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM gym_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Supplies', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM supplies_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
+      WHERE transaction_date >= ? AND transaction_date < ?
       UNION ALL
       SELECT 'Laundry', 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM laundry_transactions 
-      WHERE MONTH(transaction_date) = MONTH(NOW()) AND YEAR(transaction_date) = YEAR(NOW())
-    `);
+      WHERE transaction_date >= ? AND transaction_date < ?
+    `, Array(6).fill([reportRange.from, reportRange.to]).flat());
 
     let totalWithdrawalsCount = 0;
     let totalRestocksCount = 0;
@@ -936,7 +982,9 @@ router.post('/email', async (req, res) => {
     });
 
     // Fetch all stock items for complete listing
-    const [allStock] = await pool.query(`
+    // The summary email only needs counts. Load the full inventory list for
+    // the itemized PDF format only.
+    const [allStock] = isDetailed ? await pool.query(`
       SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
       SELECT name, 'Spa', quantity, unit FROM spa_items WHERE is_active = 1 AND is_folder = 0
@@ -949,28 +997,46 @@ router.post('/email', async (req, res) => {
       UNION ALL
       SELECT name, 'Laundry', quantity, unit FROM laundry_items WHERE is_active = 1 AND is_folder = 0
       ORDER BY module, name
-    `);
+    `) : [[]];
 
-    // Fetch stock summary per department
-    const [stockSummary] = await pool.query(`
-      SELECT 'Kitchen' as module, COUNT(*) as item_count, COALESCE(SUM(quantity), 0) as total_quantity FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
+    // Count inventory records per department; item quantities use different units.
+    const [stockSummary] = isDetailed ? await pool.query(`
+      SELECT 'Kitchen' as module, COUNT(*) as item_count FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Spa', COUNT(*), COALESCE(SUM(quantity), 0) FROM spa_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Spa', COUNT(*) FROM spa_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Shop', COUNT(*), COALESCE(SUM(quantity), 0) FROM shop_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Shop', COUNT(*) FROM shop_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Gym', COUNT(*), COALESCE(SUM(quantity), 0) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Gym', COUNT(*) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Supplies', COUNT(*), COALESCE(SUM(quantity), 0) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
+      SELECT 'Supplies', COUNT(*) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
-      SELECT 'Laundry', COUNT(*), COALESCE(SUM(quantity), 0) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
-    `);
+      SELECT 'Laundry', COUNT(*) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
+    `) : [[]];
 
-    const subject = `Swiss Side Inventory Report — ${dateStr} — Requested by ${requesterName}`;
+    const subject = `Swiss Side Inventory Report — ${reportPeriodLabel(period)} (${reportRangeLabel(reportRange)}) — ${dateStr}`;
+
+    if (!isDetailed) {
+      const totalActivity = totalWithdrawalsCount + totalRestocksCount;
+      const summaryHtml = `<!doctype html><html><body style="margin:0;background:#f4f1ee;font-family:Arial,sans-serif;color:#1a1a1a"><main style="max-width:640px;margin:24px auto;background:#fff;padding:28px;border-top:4px solid #A0604E"><p style="margin:0;color:#A0604E;font-size:12px;font-weight:bold;text-transform:uppercase">Swiss Side · Operations summary</p><h1 style="font-size:24px;margin:8px 0">${reportPeriodLabel(period)}</h1><p style="color:#555">Activity: ${reportRangeLabel(reportRange)}<br>Prepared ${dateStr} by ${escapeHtml(requesterName)}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Activity in selected period</h2><p><strong>${totalActivity}</strong> transactions · <strong>${totalWithdrawalsCount}</strong> withdrawals · <strong>${totalRestocksCount}</strong> restocks</p><p>${movementSummary.map(row => `${row.module}: ${row.withdrawals} withdrawals, ${row.restocks} restocks`).join('<br>')}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Current snapshot · ${dateStr}</h2><p><strong>${zeroStock.length}</strong> items at zero stock · <strong>${lowStock.length}</strong> below reorder level · <strong>${pendingMaint.length}</strong> open maintenance tickets · <strong>${needsRes.length}</strong> open requests</p><p style="margin-top:24px;color:#777;font-size:12px">This email summarizes activity for the selected period. Stock levels and open-work counts are current as of the preparation date. Use the detailed PDF option for itemized records.</p></main></body></html>`;
+      const summaryText = [
+        `Swiss Side Operations Summary — ${reportPeriodLabel(period)}`,
+        `Activity: ${reportRangeLabel(reportRange)}`,
+        `Prepared ${dateStr} by ${requesterName}`,
+        '',
+        `Activity: ${totalActivity} transactions (${totalWithdrawalsCount} withdrawals; ${totalRestocksCount} restocks)`,
+        ...movementSummary.map(row => `${row.module}: ${row.withdrawals} withdrawals; ${row.restocks} restocks`),
+        '',
+        `Current snapshot (${dateStr}): ${zeroStock.length} zero-stock items; ${lowStock.length} items below reorder level; ${pendingMaint.length} open maintenance tickets; ${needsRes.length} open requests.`,
+        'Stock and open-work counts reflect current status, not historical values for the selected period.'
+      ].join('\n');
+      await sendCustomEmail(email, subject, summaryText, summaryHtml);
+      return res.json({ success: true, message: `Summary report sent to ${email}` });
+    }
 
     if (isDetailed) {
       // 1. GENERATE DETAILED PDF ATTACHMENT
-      const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary);
+      const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary, period);
 
       // 2. CONSTRUCT GORGEOUS HTML EMAIL NOTIFYING OF ATTACHMENT (Strictly Emoji-Free!)
       const detailedEmailHtml = `
@@ -1090,7 +1156,7 @@ router.post('/email', async (req, res) => {
                       </tr>
                     </table>
                     <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:15px;text-transform:uppercase;letter-spacing:0.05em;">Swiss Side Inventory Report</div>
-                    <div style="color:#888888;font-size:12px;margin-top:5px;">Run Date: ${dateStr} | Requested by: ${requesterName}</div>
+                    <div style="color:#888888;font-size:12px;margin-top:5px;">Run Date: ${dateStr} | Activity period: ${reportPeriodLabel(period)} (${reportRangeLabel(reportRange)})</div>
                   </td>
                 </tr>
                 <!-- Thin accent line -->
@@ -1224,7 +1290,7 @@ router.post('/email', async (req, res) => {
 
 
                     <!-- SECTION 6 — MOVEMENT SUMMARY -->
-                    <h3 style="margin:20px 0 15px;font-size:14px;font-weight:700;text-transform:uppercase;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:5px;">5. Monthly Activity Volume Ledger</h3>
+                    <h3 style="margin:20px 0 15px;font-size:14px;font-weight:700;text-transform:uppercase;color:#1a1a1a;border-bottom:1px solid #eee;padding-bottom:5px;">5. Activity in Selected Period</h3>
                     <table width="100%" cellpadding="8" cellspacing="0" style="font-size:13px;color:#4a4a4a;border-collapse:collapse;">
                       <thead>
                         <tr style="background-color:#1a1a1a;color:#ffffff;text-align:left;">
@@ -1258,7 +1324,6 @@ router.post('/email', async (req, res) => {
                         <tr style="background-color:#1a1a1a;color:#ffffff;text-align:left;">
                           <th style="font-weight:700;padding:8px;">Department Module</th>
                           <th style="font-weight:700;padding:8px;text-align:right;">Distinct Items</th>
-                          <th style="font-weight:700;padding:8px;text-align:right;">Total Stock Qty</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1266,7 +1331,6 @@ router.post('/email', async (req, res) => {
                           <tr>
                             <td style="border-bottom:1px solid #eee;padding:8px;font-weight:700;">${row.module} Inventory</td>
                             <td align="right" style="border-bottom:1px solid #eee;padding:8px;">${row.item_count} item(s)</td>
-                            <td align="right" style="border-bottom:1px solid #eee;padding:8px;font-weight:bold;">${parseInt(row.total_quantity).toLocaleString()}</td>
                           </tr>
                         `).join('')}
                       </tbody>
@@ -1381,7 +1445,8 @@ router.post('/shopping-lists/:id/items', async (req, res) => {
   const { name, department, unit, price_per_unit, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Item name is required.' });
 
-  const qty = suggested_quantity || 1;
+  const qty = parseListQuantity(suggested_quantity === undefined ? 1 : suggested_quantity);
+  if (qty === null) return res.status(400).json({ error: 'Quantity must be greater than zero and may have up to two decimal places.' });
   const price = price_per_unit || 0;
   const total = qty * price;
 
@@ -1415,7 +1480,8 @@ router.put('/shopping-lists/:id/items/:itemId', async (req, res) => {
   const { name, department, unit, price_per_unit, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Item name is required.' });
 
-  const qty = suggested_quantity || 1;
+  const qty = parseListQuantity(suggested_quantity === undefined ? 1 : suggested_quantity);
+  if (qty === null) return res.status(400).json({ error: 'Quantity must be greater than zero and may have up to two decimal places.' });
   const price = price_per_unit || 0;
   const total = qty * price;
 

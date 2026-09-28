@@ -4,7 +4,6 @@ import { useEffect, useId, useRef } from 'react';
 export default function Modal({ isOpen, onClose, title, children, footer }) {
   const titleId = useId();
   const dialogRef = useRef(null);
-  const previouslyFocusedRef = useRef(null);
   const onCloseRef = useRef(onClose);
 
   // Parents commonly create the close handler inline. Keeping the latest
@@ -14,12 +13,12 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // Prevent scrolling when modal is open
+  // Prevent scrolling when the dialog is open. Do not programmatically move
+  // focus here: on mobile browsers it can dismiss the keyboard or blur the
+  // active field after React re-renders a controlled form input.
   useEffect(() => {
     if (isOpen) {
-      previouslyFocusedRef.current = document.activeElement;
       document.body.style.overflow = 'hidden';
-      const frame = requestAnimationFrame(() => dialogRef.current?.focus());
       const onKeyDown = (event) => {
         if (event.key === 'Escape') onCloseRef.current();
         if (event.key !== 'Tab' || !dialogRef.current) return;
@@ -33,10 +32,8 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
       };
       document.addEventListener('keydown', onKeyDown);
       return () => {
-        cancelAnimationFrame(frame);
         document.removeEventListener('keydown', onKeyDown);
         document.body.style.overflow = '';
-        previouslyFocusedRef.current?.focus?.();
       };
     } else {
       document.body.style.overflow = '';
@@ -54,7 +51,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
       />
 
       {/* Modal Content */}
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="relative w-full md:max-w-[600px] bg-white shadow-2xl overflow-hidden
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} className="relative w-full md:max-w-[600px] bg-white shadow-2xl overflow-hidden
                     h-[auto] max-h-[90dvh] md:max-h-[85vh] md:rounded-[32px] flex flex-col
                     animate-in slide-in-from-bottom duration-500 md:slide-in-from-top-4
                     rounded-t-[40px] md:rounded-b-[32px] border-t border-[#F3F4F6] md:border-none">
