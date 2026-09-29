@@ -154,6 +154,8 @@ const resetLimiter = rateLimit({
   legacyHeaders: false
 });
 
+const resetRequestMessage = 'If this address is linked to a Swiss Side account, reset instructions may be sent by email. To request a new account, ask your department manager to contact the system administrator.';
+
 router.post('/request-reset', resetLimiter, async (req, res) => {
   try {
     const email = cleanEmail(req.body.email);
@@ -166,14 +168,14 @@ router.post('/request-reset', resetLimiter, async (req, res) => {
     const user = rows[0];
 
     if (!user) {
-      // Avoid account enumeration by returning a generic success message
-      return res.json({ success: true, message: 'A password reset link has been sent to your email.' });
+      // Keep the same response for unknown and known accounts to prevent account enumeration.
+      return res.json({ success: true, message: resetRequestMessage });
     }
 
     if (user.last_reset_request) {
       const secondsSinceLast = (Date.now() - new Date(user.last_reset_request).getTime()) / 1000;
       if (secondsSinceLast < 60) {
-        return res.status(429).json({ error: 'Please wait 1 minute before requesting another link.' });
+        return res.json({ success: true, message: resetRequestMessage });
       }
     }
 
@@ -190,9 +192,14 @@ router.post('/request-reset', resetLimiter, async (req, res) => {
       [token, expiry, user.id]
     );
 
-    await sendMagicLink(user.email, resetUrl);
+    try {
+      await sendMagicLink(user.email, resetUrl);
+    } catch (mailErr) {
+      // Do not reveal account existence through a different response when email delivery fails.
+      console.error('[Request Reset Email Error]', mailErr.message);
+    }
 
-    res.json({ success: true, message: 'A password reset link has been sent to your email.' });
+    res.json({ success: true, message: resetRequestMessage });
   } catch (err) {
     console.error('[Request Reset Error]', err.message);
     res.status(500).json({ error: 'Server error. Please try again.' });

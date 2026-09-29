@@ -26,9 +26,9 @@ export default function ResetPassword() {
     try {
       await api.post('/auth/request-reset', { email });
       setStep(2);
-      toast.success('Magic link dispatched');
+      toast.success('Recovery request received');
     } catch (err) {
-      toast.error(err.response?.data?.error || 'System failed to dispatch link');
+      toast.error(err.error || 'System failed to process the request');
     } finally {
       setLoading(false);
     }
@@ -107,12 +107,17 @@ export default function ResetPassword() {
                     <Mail size={48} />
                   </div>
                   <h3 className="text-2xl font-black text-[#1A1A1A] uppercase tracking-tight mb-4">
-                    Check Your Inbox
+                    Check Your Email
                   </h3>
                   <p className="text-[16px] text-[#6B7280] leading-relaxed mb-10 font-medium">
-                    A secure authentication link has been dispatched to <br/>
-                    <strong className="text-[#1A1A1A] block mt-2 text-lg tracking-tight">{email}</strong>
+                    If a Swiss Side account is registered to <strong className="text-[#1A1A1A]">{email}</strong>, reset instructions may arrive by email. Check your spam or junk folder too.
                   </p>
+                  <div className="rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] p-4 mb-8 text-left">
+                    <p className="text-sm font-bold text-[#374151]">Need a new account?</p>
+                    <p className="mt-1 text-sm leading-relaxed text-[#6B7280]">
+                      Ask your department manager to contact the system administrator and request access for you. Staff accounts are created by an administrator.
+                    </p>
+                  </div>
                   
                   <div className="p-6 bg-[#F9FAFB] rounded-[24px] mb-10 border border-[#F3F4F6]">
                     <p className="text-[12px] text-[#9CA3AF] font-bold uppercase tracking-widest leading-relaxed">

@@ -1,8 +1,10 @@
 const router = require('express').Router();
 const pool = require('../db');
 const path = require('path');
+const PDFDocument = require('pdfkit');
 const { requireAuth } = require('../middleware/auth');
 const { sendCustomEmail } = require('../services/email');
+const { generateActivityPDFBuffer } = require('../services/reportPdf');
 
 function isValidReportRange(from, to) {
   const isDate = value => {
@@ -33,15 +35,54 @@ function getReportRange(period) {
   return { from: format(start), to: format(nextDay) };
 }
 
+function resolveReportRange(period, from, to) {
+  if (from || to) return isValidReportRange(from, to) ? { from, to } : null;
+  const range = getReportRange(period);
+  if (!range) return null;
+  const inclusiveEnd = new Date(`${range.to}T00:00:00Z`);
+  inclusiveEnd.setUTCDate(inclusiveEnd.getUTCDate() - 1);
+  return { from: range.from, to: inclusiveEnd.toISOString().slice(0, 10) };
+}
+
 function reportPeriodLabel(period) {
   return ({ '24h': 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', '6m': 'Last 6 months', '12m': 'Last 12 months', all: 'All time' })[period];
 }
 
-function reportRangeLabel(range) {
+function reportRangeLabel(range, inclusiveEnd = false) {
   const lastDay = new Date(`${range.to}T00:00:00`);
-  lastDay.setDate(lastDay.getDate() - 1);
+  if (!inclusiveEnd) lastDay.setDate(lastDay.getDate() - 1);
   const format = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   return `${range.from} to ${format(lastDay)}`;
+}
+
+async function getActivityRows(range) {
+  const [rows] = await pool.query(`
+    SELECT 'Kitchen' AS module, i.name AS item_name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name AS action_by
+    FROM kitchen_transactions t JOIN kitchen_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    UNION ALL
+    SELECT 'Spa', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    FROM spa_transactions t JOIN spa_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    UNION ALL
+    SELECT 'Shop', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    FROM shop_transactions t JOIN shop_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    UNION ALL
+    SELECT 'Gym', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    FROM gym_transactions t JOIN gym_inventory i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    UNION ALL
+    SELECT 'Supplies', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    FROM supplies_transactions t JOIN supplies_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    UNION ALL
+    SELECT 'Laundry', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    FROM laundry_transactions t JOIN laundry_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
+    WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
+    ORDER BY transaction_date DESC
+  `, Array(6).fill([range.from, range.to]).flat());
+  return rows;
 }
 
 function parseListQuantity(value) {
@@ -62,149 +103,16 @@ router.use(requireAuth);
 router.get('/statement-download', async (req, res) => {
   try {
     const period = req.query.period || 'all';
-    const reportRange = getReportRange(period);
-    if (!reportRange) return res.status(400).json({ error: 'Invalid report period.' });
+    const reportRange = resolveReportRange(period, req.query.from, req.query.to);
+    if (!reportRange) return res.status(400).json({ error: 'Invalid report period or date range.' });
     const dateStr = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY
     const requesterName = req.user.display_name || 'Administrator';
 
-    // Fetch zero stock items
-    const [zeroStock] = await pool.query(`
-      SELECT name, 'Kitchen' as module, unit FROM kitchen_items WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Spa', unit FROM spa_items WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Shop', unit FROM shop_items WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Gym', unit FROM gym_inventory WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Supplies', unit FROM supplies_items WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Laundry', unit FROM laundry_items WHERE is_folder = 0 AND quantity = 0 AND is_active = 1
-      ORDER BY name
-    `);
-
-    // Fetch low stock warnings (quantity < reorder_level AND reorder_level > 0 AND is_active = 1)
-    const [lowStock] = await pool.query(`
-      SELECT name, 'Kitchen' as module, quantity, unit, reorder_level FROM kitchen_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Spa', quantity, unit, reorder_level FROM spa_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Shop', quantity, unit, reorder_level FROM shop_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Gym', quantity, unit, reorder_level FROM gym_inventory WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Supplies', quantity, unit, reorder_level FROM supplies_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      UNION ALL
-      SELECT name, 'Laundry', quantity, unit, reorder_level FROM laundry_items WHERE is_folder = 0 AND quantity < reorder_level AND reorder_level > 0 AND is_active = 1
-      ORDER BY name
-    `);
-
-    // Fetch pending maintenance sorted by days_open DESC
-    const [pendingMaint] = await pool.query(`
-      SELECT 'Kitchen' as module, m.description, m.status,
-             i.name as item, DATEDIFF(NOW(), m.created_at) as days_open
-      FROM kitchen_maintenance m
-      JOIN kitchen_items i ON m.item_id = i.id
-      WHERE m.status = 'pending'
-      UNION ALL
-      SELECT 'Spa' as module, m.description, m.status,
-             i.name as item, DATEDIFF(NOW(), m.created_at) as days_open
-      FROM spa_maintenance m
-      JOIN spa_items i ON m.item_id = i.id
-      WHERE m.status = 'pending'
-      UNION ALL
-      SELECT 'Gym' as module, m.description, m.status,
-             i.name as item, DATEDIFF(NOW(), m.created_at) as days_open
-      FROM gym_maintenance m
-      JOIN gym_inventory i ON m.item_id = i.id
-      WHERE m.status = 'pending'
-      ORDER BY days_open DESC
-    `);
-
-    const [needsRes] = await pool.query(`
-      SELECT status, COALESCE(urgency, 'Medium') as urgency, COALESCE(item, '') as item, COALESCE(estimated_price, 0) as estimated_price, COALESCE(currency, 'KSH') as currency, created_at
-      FROM needs
-      WHERE is_active = 1 AND status IN ('pending', 'approved', 'ordered')
-      ORDER BY
-        CASE COALESCE(urgency, 'Medium') WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END,
-        created_at ASC
-    `);
-
-    // Fetch transaction volume count per module this calendar month
-    const [movementSummary] = await pool.query(`
-      SELECT 'Kitchen' as module, 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM kitchen_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-      UNION ALL
-      SELECT 'Spa', 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM spa_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-      UNION ALL
-      SELECT 'Shop', 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM shop_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-      UNION ALL
-      SELECT 'Gym', 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM gym_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-      UNION ALL
-      SELECT 'Supplies', 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM supplies_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-      UNION ALL
-      SELECT 'Laundry', 
-        COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
-        COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
-      FROM laundry_transactions 
-      WHERE transaction_date >= ? AND transaction_date < ?
-    `, Array(6).fill([reportRange.from, reportRange.to]).flat());
-
-    // Fetch all stock items for the complete statement PDF.
-    const [allStock] = await pool.query(`
-      SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Spa', quantity, unit FROM spa_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Shop', quantity, unit FROM shop_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Gym', quantity, unit FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Supplies', quantity, unit FROM supplies_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Laundry', quantity, unit FROM laundry_items WHERE is_active = 1 AND is_folder = 0
-      ORDER BY module, name
-    `);
-
-    // Count inventory records per department. Quantities use different units,
-    // so summing them across items would not represent a useful stock total.
-    const [stockSummary] = await pool.query(`
-      SELECT 'Kitchen' as module, COUNT(*) as item_count FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT 'Spa', COUNT(*) FROM spa_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT 'Shop', COUNT(*) FROM shop_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT 'Gym', COUNT(*) FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT 'Supplies', COUNT(*) FROM supplies_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT 'Laundry', COUNT(*) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
-    `);
-
-    const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary, period);
+    const activityRows = await getActivityRows(reportRange);
+    const pdfBuffer = await generateActivityPDFBuffer(activityRows, reportRange, dateStr, requesterName, period);
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="Swiss_Side_Operations_Statement.pdf"');
+    res.setHeader('Content-Disposition', `attachment; filename="Swiss_Side_Activity_${reportRange.from}_to_${reportRange.to}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
     console.error('[Statement Download Error]', err);
@@ -525,336 +433,11 @@ router.get('/maintenance', async (req, res) => {
   }
 });
 
-const PDFDocument = require('pdfkit');
-const { sendDetailedReportWithAttachment } = require('../services/email');
-
-// Helper to generate a clean, emoji-free professional PDF report statement with custom cover page and digital layout
-function generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock = [], stockSummary = [], period = 'all') {
-  const cleanText = (str) => String(str || '').replace(/[^\x00-\x7F]/g, "").trim();
-  return new Promise((resolve, reject) => {
-    try {
-      const doc = new PDFDocument({ margin: 40, size: 'A4' });
-      const buffers = [];
-      doc.on('data', chunk => buffers.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
-      doc.on('error', err => reject(err));
-
-      // Brand Color Palette (Iten Terracotta & Sleek Charcoal)
-      const primaryColor = '#A0604E'; // Iten Terracotta
-      const charcoal = '#1A1A1A';
-      const gray = '#6B7280';
-      const borderGray = '#E5E7EB';
-      const lightGray = '#F9FAFB';
-
-      // ==========================================
-      // COMPACT HEADER (PAGE 1)
-      // ==========================================
-      const logoPath = path.join(__dirname, '../logo.jpg');
-      try {
-        doc.image(logoPath, 40, 40, { width: 50 });
-      } catch (imgErr) {
-        // Fallback text if logo fails to load
-        doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(14).text('SWISS SIDE', 40, 40);
-      }
-
-      // Title & Subtitle next to the logo
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(13).text(cleanText('SWISS SIDE TRAINING CAMP'), 105, 42);
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(8).text(cleanText('INTERNAL OPERATIONS & INVENTORY STATEMENT'), 105, 57);
-
-      // Metadata card on the right
-      doc.fillColor(gray).font('Helvetica').fontSize(8)
-         .text(cleanText(`Report Date: ${dateStr}`), 380, 42, { align: 'right', width: 175 })
-         .text(cleanText(`Issued By: ${requesterName.toUpperCase()}`), 380, 54, { align: 'right', width: 175 })
-         .text(cleanText(`Movement period: ${reportPeriodLabel(period)}`), 380, 66, { align: 'right', width: 175 });
-
-      // Terracotta Divider bar
-      doc.rect(40, 84, 515, 2.5).fill(primaryColor);
-
-      let y = 105;
-
-      // Helper function to manage page breaks and keep headers active
-      function checkPageBreak(neededHeight) {
-        if (y + neededHeight > 780) {
-          doc.addPage();
-          doc.rect(40, 40, 515, 4).fill(primaryColor);
-          
-          try {
-            doc.image(logoPath, 40, 48, { width: 30 });
-            doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(10).text(cleanText('SWISS SIDE TRAINING CAMP'), 80, 52);
-          } catch (imgErr) {
-            doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(10).text(cleanText('SWISS SIDE TRAINING CAMP'), 40, 52);
-          }
-          
-          doc.fillColor(gray).font('Helvetica').fontSize(8).text(cleanText('Operations Statement Audit Report'), 400, 52, { align: 'right', width: 155 });
-          doc.moveTo(40, 82).lineTo(555, 82).strokeColor(borderGray).lineWidth(0.5).stroke();
-          y = 100;
-        }
-      }
-
-      // Premium Table styling helper methods with screen-friendly sizes (22px row height)
-      function drawTableHeader(yPos, columns) {
-        doc.rect(40, yPos, 515, 22).fill(lightGray);
-        doc.strokeColor(borderGray).lineWidth(0.5).rect(40, yPos, 515, 22).stroke();
-        doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(8.5);
-        columns.forEach(col => {
-          doc.text(cleanText(col.title.toUpperCase()), col.x, yPos + 7, { width: col.w, align: col.align || 'left' });
-        });
-      }
-
-      // Draw table row with premium look, bold critical styling, and ample spacing
-      function drawTableRow(yPos, columns, rowData, isCritical = false) {
-        if (isCritical) {
-          doc.rect(40, yPos, 515, 22).fill('#FDF2F2');
-        }
-        doc.strokeColor(borderGray).lineWidth(0.5).moveTo(40, yPos + 22).lineTo(555, yPos + 22).stroke();
-        doc.fillColor(isCritical ? '#9B1C1C' : charcoal).font(isCritical ? 'Helvetica-Bold' : 'Helvetica').fontSize(8);
-        columns.forEach(col => {
-          const val = rowData[col.key] !== undefined ? String(rowData[col.key]) : '';
-          doc.text(cleanText(val), col.x, yPos + 7, { width: col.w, align: col.align || 'left' });
-        });
-      }
-
-      // SECTION 1: CRITICAL ZERO STOCK
-      checkPageBreak(70);
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(11).text(cleanText('1. CRITICAL ALERTS (ZERO STOCK ITEMS)'), 40, y);
-      y += 20;
-
-      if (zeroStock.length === 0) {
-        doc.fillColor('#15803D').font('Helvetica-Bold').fontSize(9).text(cleanText('All systems healthy. No inventory items are currently at zero stock.'), 40, y);
-        y += 25;
-      } else {
-        const cols = [
-          { title: 'Item Description', key: 'name', x: 45, w: 250 },
-          { title: 'Department Module', key: 'module', x: 300, w: 120 },
-          { title: 'Stock Level', key: 'stockStr', x: 430, w: 120, align: 'right' }
-        ];
-        drawTableHeader(y, cols);
-        y += 22;
-
-        zeroStock.forEach(item => {
-          checkPageBreak(30);
-          const rowData = {
-            name: (item.name || '').toUpperCase(),
-            module: `${(item.module || '').toUpperCase()} DEPT`,
-            stockStr: `0 ${item.unit || 'pcs'}`
-          };
-          drawTableRow(y, cols, rowData, true);
-          y += 22;
-        });
-        y += 12;
-      }
-
-      // SECTION 2: LOW STOCK WARNINGS
-      checkPageBreak(70);
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(11).text(cleanText('2. LOW STOCK WARNINGS'), 40, y);
-      y += 20;
-
-      if (lowStock.length === 0) {
-        doc.fillColor('#15803D').font('Helvetica-Bold').fontSize(9).text(cleanText('All stock levels are currently above reorder thresholds.'), 40, y);
-        y += 25;
-      } else {
-        const cols = [
-          { title: 'Item Description', key: 'name', x: 45, w: 220 },
-          { title: 'Department', key: 'module', x: 270, w: 100 },
-          { title: 'Current Stock', key: 'qtyStr', x: 380, w: 85, align: 'right' },
-          { title: 'Reorder Level', key: 'reorderStr', x: 470, w: 80, align: 'right' }
-        ];
-        drawTableHeader(y, cols);
-        y += 22;
-
-        lowStock.forEach(item => {
-          checkPageBreak(30);
-          const rowData = {
-            name: (item.name || '').toUpperCase(),
-            module: `${(item.module || '').toUpperCase()} DEPT`,
-            qtyStr: `${item.quantity} ${item.unit || 'pcs'}`,
-            reorderStr: `${item.reorder_level} ${item.unit || 'pcs'}`
-          };
-          const isCriticalRow = item.quantity <= (item.reorder_level * 0.5);
-          drawTableRow(y, cols, rowData, isCriticalRow);
-          y += 22;
-        });
-        y += 12;
-      }
-
-      // SECTION 3: PENDING MAINTENANCE
-      checkPageBreak(70);
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText('3. PENDING EQUIPMENT MAINTENANCE LOG'), 40, y);
-      y += 20;
-
-      if (pendingMaint.length === 0) {
-        doc.fillColor(gray).font('Helvetica').fontSize(9).text(cleanText('No pending maintenance tickets in the active queue.'), 40, y);
-        y += 25;
-      } else {
-        const cols = [
-          { title: 'Equipment / Item', key: 'item', x: 45, w: 140 },
-          { title: 'Department', key: 'module', x: 190, w: 80 },
-          { title: 'Issue Description', key: 'description', x: 280, w: 200 },
-          { title: 'Days Open', key: 'daysStr', x: 490, w: 60, align: 'right' }
-        ];
-        drawTableHeader(y, cols);
-        y += 22;
-
-        pendingMaint.forEach(item => {
-          checkPageBreak(30);
-          const rowData = {
-            item: (item.item || '').toUpperCase(),
-            module: `${(item.module || '').toUpperCase()} DEPT`,
-            description: item.description || '',
-            daysStr: `${item.days_open || 0} day(s)`
-          };
-          drawTableRow(y, cols, rowData, (item.days_open || 0) >= 7);
-          y += 22;
-        });
-        y += 12;
-      }
-
-      // SECTION 4: CAPITAL REQUISITIONS LIST
-      checkPageBreak(70);
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText('4. REQUISITIONS STATUS OVERVIEW'), 40, y);
-      y += 20;
-
-      const pendingCount = needsRes.filter(n => (n.status || '').toLowerCase() === 'pending').length;
-      const approvedCount = needsRes.filter(n => (n.status || '').toLowerCase() === 'approved').length;
-      const orderedCount = needsRes.filter(n => (n.status || '').toLowerCase() === 'ordered').length;
-      const highUrgencyNeeds = needsRes.filter(n => (n.urgency || '').toLowerCase() === 'high' || (n.urgency || '').toLowerCase() === 'critical');
-
-      doc.fillColor(charcoal).font('Helvetica').fontSize(9)
-         .text(cleanText(`Active Requisition Summary: ${pendingCount} Pending | ${approvedCount} Approved | ${orderedCount} Ordered`), 40, y);
-      y += 18;
-
-      if (highUrgencyNeeds.length === 0) {
-        doc.fillColor(gray).font('Helvetica').fontSize(9).text(cleanText('No critical or high urgency requisitions currently open.'), 40, y);
-        y += 25;
-      } else {
-        const cols = [
-          { title: 'Requested Item Description', key: 'item', x: 45, w: 250 },
-          { title: 'Status', key: 'status', x: 300, w: 120 },
-          { title: 'Estimated Cost', key: 'costStr', x: 430, w: 120, align: 'right' }
-        ];
-        drawTableHeader(y, cols);
-        y += 22;
-
-        highUrgencyNeeds.forEach(item => {
-          checkPageBreak(30);
-          const rowData = {
-            item: (item.item || '').toUpperCase(),
-            status: (item.status || '').toUpperCase(),
-            costStr: `${item.currency || 'KSH'} ${parseFloat(item.estimated_price || 0).toLocaleString()}`
-          };
-          drawTableRow(y, cols, rowData);
-          y += 22;
-        });
-        y += 12;
-      }
-
-      // SECTION 5: TRANSACTION VOLUMES
-      checkPageBreak(90);
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText("5. SELECTED PERIOD'S TRANSACTION VOLUMES"), 40, y);
-      y += 20;
-
-      let totalWithdrawalsCount = 0;
-      let totalRestocksCount = 0;
-      movementSummary.forEach(row => {
-        totalWithdrawalsCount += parseInt(row.withdrawals || 0);
-        totalRestocksCount += parseInt(row.restocks || 0);
-      });
-
-      const cols = [
-        { title: 'Department Module', key: 'module', x: 45, w: 250 },
-        { title: 'Withdrawal Transactions', key: 'withdrawalsStr', x: 300, w: 120, align: 'right' },
-        { title: 'Restock Transactions', key: 'restocksStr', x: 430, w: 120, align: 'right' }
-      ];
-      drawTableHeader(y, cols);
-      y += 22;
-
-      movementSummary.forEach(row => {
-        checkPageBreak(30);
-        const rowData = {
-          module: `${(row.module || '').toUpperCase()} INVENTORY`,
-          withdrawalsStr: `${row.withdrawals || 0} txn(s)`,
-          restocksStr: `${row.restocks || 0} txn(s)`
-        };
-        drawTableRow(y, cols, rowData);
-        y += 22;
-      });
-
-      // Total summarizing row
-      checkPageBreak(30);
-      doc.rect(40, y, 515, 22).fill('#F5F5F5');
-      doc.strokeColor(borderGray).lineWidth(0.5).rect(40, y, 515, 22).stroke();
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(8.5);
-      doc.text(cleanText('TOTAL DEPT TRANSACTIONS'), 45, y + 7);
-      doc.text(cleanText(`${totalWithdrawalsCount} withdrawals`), 300, y + 7, { width: 120, align: 'right' });
-      doc.text(cleanText(`${totalRestocksCount} restocks`), 430, y + 7, { width: 120, align: 'right' });
-      y += 22;
-      y += 12;
-
-      // SECTION 6: STOCK SUMMARY PER DEPARTMENT
-      checkPageBreak(70);
-      doc.fillColor(charcoal).font('Helvetica-Bold').fontSize(11).text(cleanText("6. STOCK SUMMARY PER DEPARTMENT"), 40, y);
-      y += 20;
-
-      const sumCols = [
-        { title: 'Department Module', key: 'module', x: 45, w: 350 },
-        { title: 'Distinct Items Count', key: 'itemCountStr', x: 430, w: 120, align: 'right' }
-      ];
-      drawTableHeader(y, sumCols);
-      y += 22;
-
-      stockSummary.forEach(row => {
-        checkPageBreak(30);
-        const rowData = {
-          module: `${(row.module || '').toUpperCase()} INVENTORY`,
-          itemCountStr: `${row.item_count || 0} item(s)`
-        };
-        drawTableRow(y, sumCols, rowData);
-        y += 22;
-      });
-      y += 12;
-
-      // SECTION 7: COMPLETE INVENTORY STOCK LIST
-      checkPageBreak(70);
-      doc.fillColor(primaryColor).font('Helvetica-Bold').fontSize(11).text(cleanText("7. COMPLETE INVENTORY STOCK LIST"), 40, y);
-      y += 20;
-
-      if (!allStock || allStock.length === 0) {
-        doc.fillColor(gray).font('Helvetica').fontSize(9).text(cleanText('No inventory items currently registered in the database.'), 40, y);
-        y += 25;
-      } else {
-        const stockCols = [
-          { title: 'Item Description', key: 'name', x: 45, w: 250 },
-          { title: 'Department Module', key: 'module', x: 300, w: 120 },
-          { title: 'Current Stock Level', key: 'stockStr', x: 430, w: 120, align: 'right' }
-        ];
-        drawTableHeader(y, stockCols);
-        y += 22;
-
-        allStock.forEach(item => {
-          checkPageBreak(30);
-          const rowData = {
-            name: (item.name || '').toUpperCase(),
-            module: `${(item.module || '').toUpperCase()} DEPT`,
-            stockStr: `${item.quantity} ${item.unit || 'pcs'}`
-          };
-          const isCriticalRow = item.quantity === 0;
-          drawTableRow(y, stockCols, rowData, isCriticalRow);
-          y += 22;
-        });
-      }
-      
-      doc.end();
-    } catch (docErr) {
-      reject(docErr);
-    }
-  });
-}
-
 // POST /api/reports/email — Compile and email HTML summary report OR detailed PDF attachment
 router.post('/email', async (req, res) => {
   const { email, format } = req.body;
   const period = req.body.period || '7d';
-  const reportRange = getReportRange(period);
+    const reportRange = resolveReportRange(period, req.body.from, req.body.to);
   if (!email) {
     return res.status(400).json({ error: 'Email address is required.' });
   }
@@ -935,7 +518,11 @@ router.post('/email', async (req, res) => {
     const orderedCount = needsRes.filter(n => (n.status || '').toLowerCase() === 'ordered').length;
     const highUrgencyNeeds = needsRes.filter(n => (n.urgency || '').toLowerCase() === 'high' || (n.urgency || '').toLowerCase() === 'critical');
 
-    // Fetch transaction volume count per module this calendar month
+    const activityEndExclusive = new Date(`${reportRange.to}T00:00:00Z`);
+    activityEndExclusive.setUTCDate(activityEndExclusive.getUTCDate() + 1);
+    const activityEnd = activityEndExclusive.toISOString().slice(0, 10);
+
+    // Count transaction activity inside the selected inclusive date range.
     const [movementSummary] = await pool.query(`
       SELECT 'Kitchen' as module, 
         COALESCE(SUM(CASE WHEN action = 'withdraw' THEN 1 ELSE 0 END), 0) as withdrawals,
@@ -972,7 +559,7 @@ router.post('/email', async (req, res) => {
         COALESCE(SUM(CASE WHEN action = 'restock' THEN 1 ELSE 0 END), 0) as restocks
       FROM laundry_transactions 
       WHERE transaction_date >= ? AND transaction_date < ?
-    `, Array(6).fill([reportRange.from, reportRange.to]).flat());
+    `, Array(6).fill([reportRange.from, activityEnd]).flat());
 
     let totalWithdrawalsCount = 0;
     let totalRestocksCount = 0;
@@ -984,22 +571,6 @@ router.post('/email', async (req, res) => {
     // Fetch all stock items for complete listing
     // The summary email only needs counts. Load the full inventory list for
     // the itemized PDF format only.
-    const [allStock] = isDetailed ? await pool.query(`
-      SELECT name, 'Kitchen' as module, quantity, unit FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Spa', quantity, unit FROM spa_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Shop', quantity, unit FROM shop_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Gym', quantity, unit FROM gym_inventory WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Supplies', quantity, unit FROM supplies_items WHERE is_active = 1 AND is_folder = 0
-      UNION ALL
-      SELECT name, 'Laundry', quantity, unit FROM laundry_items WHERE is_active = 1 AND is_folder = 0
-      ORDER BY module, name
-    `) : [[]];
-
-    // Count inventory records per department; item quantities use different units.
     const [stockSummary] = isDetailed ? await pool.query(`
       SELECT 'Kitchen' as module, COUNT(*) as item_count FROM kitchen_items WHERE is_active = 1 AND is_folder = 0
       UNION ALL
@@ -1014,14 +585,15 @@ router.post('/email', async (req, res) => {
       SELECT 'Laundry', COUNT(*) FROM laundry_items WHERE is_active = 1 AND is_folder = 0
     `) : [[]];
 
-    const subject = `Swiss Side Inventory Report — ${reportPeriodLabel(period)} (${reportRangeLabel(reportRange)}) — ${dateStr}`;
+    const rangeLabel = reportRangeLabel(reportRange, true);
+    const subject = `Swiss Side Inventory Report — ${reportPeriodLabel(period)} (${rangeLabel}) — ${dateStr}`;
 
     if (!isDetailed) {
       const totalActivity = totalWithdrawalsCount + totalRestocksCount;
-      const summaryHtml = `<!doctype html><html><body style="margin:0;background:#f4f1ee;font-family:Arial,sans-serif;color:#1a1a1a"><main style="max-width:640px;margin:24px auto;background:#fff;padding:28px;border-top:4px solid #A0604E"><p style="margin:0;color:#A0604E;font-size:12px;font-weight:bold;text-transform:uppercase">Swiss Side · Operations summary</p><h1 style="font-size:24px;margin:8px 0">${reportPeriodLabel(period)}</h1><p style="color:#555">Activity: ${reportRangeLabel(reportRange)}<br>Prepared ${dateStr} by ${escapeHtml(requesterName)}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Activity in selected period</h2><p><strong>${totalActivity}</strong> transactions · <strong>${totalWithdrawalsCount}</strong> withdrawals · <strong>${totalRestocksCount}</strong> restocks</p><p>${movementSummary.map(row => `${row.module}: ${row.withdrawals} withdrawals, ${row.restocks} restocks`).join('<br>')}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Current snapshot · ${dateStr}</h2><p><strong>${zeroStock.length}</strong> items at zero stock · <strong>${lowStock.length}</strong> below reorder level · <strong>${pendingMaint.length}</strong> open maintenance tickets · <strong>${needsRes.length}</strong> open requests</p><p style="margin-top:24px;color:#777;font-size:12px">This email summarizes activity for the selected period. Stock levels and open-work counts are current as of the preparation date. Use the detailed PDF option for itemized records.</p></main></body></html>`;
+      const summaryHtml = `<!doctype html><html><body style="margin:0;background:#f4f1ee;font-family:Arial,sans-serif;color:#1a1a1a"><main style="max-width:640px;margin:24px auto;background:#fff;padding:28px;border-top:4px solid #A0604E"><p style="margin:0;color:#A0604E;font-size:12px;font-weight:bold;text-transform:uppercase">Swiss Side · Operations summary</p><h1 style="font-size:24px;margin:8px 0">${reportPeriodLabel(period)}</h1><p style="color:#555">Activity: ${rangeLabel}<br>Prepared ${dateStr} by ${escapeHtml(requesterName)}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Activity in selected period</h2><p><strong>${totalActivity}</strong> transactions · <strong>${totalWithdrawalsCount}</strong> withdrawals · <strong>${totalRestocksCount}</strong> restocks</p><p>${movementSummary.map(row => `${row.module}: ${row.withdrawals} withdrawals, ${row.restocks} restocks`).join('<br>')}</p><h2 style="font-size:16px;border-bottom:1px solid #ddd;padding-bottom:8px">Current snapshot · ${dateStr}</h2><p><strong>${zeroStock.length}</strong> items at zero stock · <strong>${lowStock.length}</strong> below reorder level · <strong>${pendingMaint.length}</strong> open maintenance tickets · <strong>${needsRes.length}</strong> open requests</p><p style="margin-top:24px;color:#777;font-size:12px">This email summarizes activity for the selected period. Stock levels and open-work counts are current as of the preparation date. Use the detailed PDF option for itemized records.</p></main></body></html>`;
       const summaryText = [
         `Swiss Side Operations Summary — ${reportPeriodLabel(period)}`,
-        `Activity: ${reportRangeLabel(reportRange)}`,
+        `Activity: ${rangeLabel}`,
         `Prepared ${dateStr} by ${requesterName}`,
         '',
         `Activity: ${totalActivity} transactions (${totalWithdrawalsCount} withdrawals; ${totalRestocksCount} restocks)`,
@@ -1036,7 +608,8 @@ router.post('/email', async (req, res) => {
 
     if (isDetailed) {
       // 1. GENERATE DETAILED PDF ATTACHMENT
-      const pdfBuffer = await generatePDFReportBuffer(zeroStock, lowStock, pendingMaint, needsRes, movementSummary, dateStr, requesterName, allStock, stockSummary, period);
+      const activityRows = await getActivityRows(reportRange);
+      const pdfBuffer = await generateActivityPDFBuffer(activityRows, reportRange, dateStr, requesterName, period);
 
       // 2. CONSTRUCT GORGEOUS HTML EMAIL NOTIFYING OF ATTACHMENT (Strictly Emoji-Free!)
       const detailedEmailHtml = `
@@ -1156,7 +729,7 @@ router.post('/email', async (req, res) => {
                       </tr>
                     </table>
                     <div style="color:#ffffff;font-size:18px;font-weight:700;margin-top:15px;text-transform:uppercase;letter-spacing:0.05em;">Swiss Side Inventory Report</div>
-                    <div style="color:#888888;font-size:12px;margin-top:5px;">Run Date: ${dateStr} | Activity period: ${reportPeriodLabel(period)} (${reportRangeLabel(reportRange)})</div>
+                    <div style="color:#888888;font-size:12px;margin-top:5px;">Run Date: ${dateStr} | Activity period: ${reportPeriodLabel(period)} (${rangeLabel})</div>
                   </td>
                 </tr>
                 <!-- Thin accent line -->

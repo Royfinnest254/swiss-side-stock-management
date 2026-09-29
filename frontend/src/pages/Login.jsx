@@ -50,7 +50,7 @@ export default function Login() {
     try {
       const res = await api.post('/auth/request-reset', { email: recoveryEmail });
       if (res.success) {
-        toast.success(res.message);
+        toast.success('Recovery request received');
         setRecoverySuccess(true);
       }
     } catch (err) {
@@ -153,16 +153,19 @@ export default function Login() {
       <Modal isOpen={recoveryModal} onClose={closeRecoveryModal} title="Account Recovery">
         {recoverySuccess ? (
           <div className="p-6 text-center space-y-6">
-            <div className="w-16 h-16 bg-[#EAF3DE] text-[#3B6D11] rounded-full flex items-center justify-center mx-auto">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M20 6L9 17L4 12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+            <div className="w-16 h-16 bg-[#F7F5F3] text-[#A0604E] rounded-full flex items-center justify-center mx-auto">
+              <Mail size={28} />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Security Link Sent</h3>
+              <h3 className="text-lg font-black text-[#1A1A1A] uppercase tracking-tight">Check Your Email</h3>
               <p className="text-xs text-[#6B7280] leading-relaxed">
-                We have successfully dispatched a unique authentication link to <strong>{recoveryEmail}</strong>. 
-                Please open your inbox and click the security link to safely reset your credentials.
+                If a Swiss Side account is registered to <strong>{recoveryEmail}</strong>, reset instructions may arrive by email. Check your spam or junk folder too.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#E5E7EB] bg-[#F9FAFB] p-4 text-left">
+              <p className="text-xs font-bold text-[#374151]">Need a new account?</p>
+              <p className="mt-1 text-xs leading-relaxed text-[#6B7280]">
+                Ask your department manager to contact the system administrator and request access for you. Staff accounts are created by an administrator.
               </p>
             </div>
             <button 

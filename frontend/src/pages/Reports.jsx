@@ -68,12 +68,14 @@ export default function Reports() {
   const handleDownloadStatement = async () => {
     const toastId = toast.loading('Compiling operations statement PDF...');
     try {
-      const response = await api.get(`/reports/statement-download?period=${encodeURIComponent(dateRange)}`, { responseType: 'blob' });
+      const range = getDateRange(dateRange);
+      const params = new URLSearchParams({ period: dateRange, from: range.from, to: range.to });
+      const response = await api.get(`/reports/statement-download?${params}`, { responseType: 'blob' });
       const blob = response instanceof Blob ? response : new Blob([response.data || response], { type: 'application/pdf' });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'Swiss_Side_Operations_Statement.pdf');
+      link.setAttribute('download', `Swiss_Side_Activity_${range.from}_to_${range.to}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -119,7 +121,8 @@ export default function Reports() {
     if (!targetEmail) return toast.error('Destination email address required');
     setSubmitting(true);
     try {
-      await api.post('/reports/email', { email: targetEmail, period: reportPeriod, format: reportFormat });
+      const range = getDateRange(reportPeriod);
+      await api.post('/reports/email', { email: targetEmail, period: reportPeriod, from: range.from, to: range.to, format: reportFormat });
       toast.success('Report dispatched to ' + targetEmail);
       setEmailModalOpen(false);
       setTargetEmail('');
