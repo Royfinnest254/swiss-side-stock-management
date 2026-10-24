@@ -1,4 +1,4 @@
-export default function FolderBreadcrumb({ breadcrumbs, navigateToFolder, itemCount, search = '' }) {
+export default function FolderBreadcrumb({ breadcrumbs, navigateToFolder, itemCount, search = '', currentFolder, onAddItem }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#F3F4F6] bg-white px-4 py-3 shadow-sm">
       <nav aria-label="Folder location" className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold">
@@ -26,11 +26,23 @@ export default function FolderBreadcrumb({ breadcrumbs, navigateToFolder, itemCo
           </span>
         ))}
       </nav>
-      <span className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF]" aria-live="polite">
-        {itemCount === 0
-          ? (search.trim() ? 'No matching items' : 'This folder is empty')
-          : `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
-      </span>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF]" aria-live="polite">
+          {itemCount === 0
+            ? (search.trim() ? 'No matching items' : 'This folder is empty')
+            : `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`}
+        </span>
+        {currentFolder && onAddItem && (
+          <button
+            type="button"
+            onClick={onAddItem}
+            aria-label={`Add an item to ${currentFolder.name}`}
+            className="rounded-xl border border-[#A0604E]/20 bg-[#FDF5F3] px-4 py-2 text-[10px] font-black uppercase tracking-widest text-[#A0604E] transition-colors hover:bg-[#A0604E] hover:text-white"
+          >
+            + Add item here
+          </button>
+        )}
+      </div>
     </div>
   );
 }

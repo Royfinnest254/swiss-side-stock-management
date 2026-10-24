@@ -145,6 +145,10 @@ export default function GeneralSupplies() {
 
   const folderNavigation = useFolderNavigation(items);
   const visibleItems = folderNavigation.getVisibleItems(filtered, search);
+  const openNewItemModal = () => {
+    setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other', is_folder: false, classification: '', parent_id: (folderNavigation.currentFolder?.id || null), unit_price: '' });
+    setItemModal({ open: true, mode: 'add', data: null });
+  };
 
   if (loading && !items.length) return (
     <div className="h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={32} /></div>
@@ -157,10 +161,7 @@ export default function GeneralSupplies() {
           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#A0604E] block mb-2">Facility Module</span>
           <h1 className="text-3xl font-black text-[#1A1A1A] tracking-tight uppercase">General Supplies</h1>
         </div>
-        <button onClick={() => {
-          setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', category: 'Other', is_folder: false, classification: '', parent_id: (folderNavigation.currentFolder?.id || null), unit_price: '' });
-          setItemModal({ open: true, mode: 'add', data: null });
-        }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER SUPPLY</button>
+        <button onClick={openNewItemModal} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> {folderNavigation.currentFolder ? 'ADD TO FOLDER' : 'REGISTER SUPPLY'}</button>
       </div>
 
       <div className="flex items-center gap-3 bg-white border border-[#F3F4F6] rounded-2xl px-6 py-1 max-w-md shadow-sm">
@@ -168,7 +169,7 @@ export default function GeneralSupplies() {
         <input className="bg-transparent border-none focus:ring-0 w-full h-11 text-[14px] placeholder:text-[#9CA3AF]" placeholder="Search supplies..." value={search} onChange={(e) => { setSearch(e.target.value); folderNavigation.navigateToFolder(-1); }} />
       </div>
 
-      <FolderBreadcrumb breadcrumbs={folderNavigation.breadcrumbs} navigateToFolder={folderNavigation.navigateToFolder} itemCount={visibleItems.length} search={search} />
+      <FolderBreadcrumb breadcrumbs={folderNavigation.breadcrumbs} navigateToFolder={folderNavigation.navigateToFolder} itemCount={visibleItems.length} search={search} currentFolder={folderNavigation.currentFolder} onAddItem={openNewItemModal} />
           <div className="system-card p-0 overflow-hidden shadow-sm">
         <div className="overflow-x-auto table-scroll">
           <table className="w-full text-left">
