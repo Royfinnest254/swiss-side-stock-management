@@ -55,6 +55,10 @@ router.put('/inventory/:id', async (req, res) => {
 // DELETE soft delete
 router.delete('/inventory/:id', async (req, res) => {
   try {
+    const [children] = await pool.query('SELECT id FROM gym_inventory WHERE parent_id = ? AND is_active = 1 LIMIT 1', [req.params.id]);
+    if (children.length) {
+      return res.status(409).json({ error: 'Folder contains items. Move or remove them before deleting it.' });
+    }
     await pool.query(
       'UPDATE gym_inventory SET is_active = 0, deleted_by = ?, deleted_at = NOW() WHERE id = ?',
       [req.user.id, req.params.id]

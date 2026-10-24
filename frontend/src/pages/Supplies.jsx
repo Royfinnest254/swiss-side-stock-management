@@ -3,6 +3,8 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
+import FolderBreadcrumb from '../components/FolderBreadcrumb';
+import { useFolderNavigation } from '../hooks/useFolderNavigation';
 import { Truck, Plus, Search, Loader2, Package, ArrowUpRight, ArrowDownLeft, Trash2, Clock, History, CheckCircle2, AlertCircle, Wrench, Calendar, Filter, Folder } from 'lucide-react';
 
 export default function Supplies() {
@@ -224,6 +226,11 @@ export default function Supplies() {
   );
 
   const handleDelete = async () => {
+    const folderToDelete = deleteModal.data;
+    if (folderToDelete?.is_folder && items.some(item => item.parent_id != null && String(item.parent_id) === String(folderToDelete.id))) {
+      toast.error('Move items out of a folder before deleting it.');
+      return;
+    }
     setSubmitting(true);
     try {
       await api.delete(`/supplies/items/${deleteModal.data.id}`);
@@ -231,7 +238,7 @@ export default function Supplies() {
       setDeleteModal({ open: false, data: null });
       setItems(prev => prev.filter(i => i.id !== deleteModal.data.id));
     } catch (err) { 
-      toast.error('Deletion failed'); 
+      toast.error(err.response?.data?.error || 'Deletion failed');
     } finally { 
       setSubmitting(false); 
     }
@@ -244,6 +251,9 @@ export default function Supplies() {
   };
 
   const filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
+
+  const folderNavigation = useFolderNavigation(items);
+  const visibleItems = folderNavigation.getVisibleItems(filtered, search);
 
   if (loading && !items.length && !maintenance.length && !transactions.length) return (
     <div className="h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={32} /></div>
@@ -267,7 +277,7 @@ export default function Supplies() {
         </div>
         {activeTab === 'list' && (
           <button onClick={() => {
-            setItemForm({ name: '', type: 'Product', quantity: 0, unit: 'pcs', reorder_level: 5, status: 'good', notes: '', is_folder: false, parent_id: null, classification: '', unit_price: '' });
+            setItemForm({ name: '', type: 'Product', quantity: 0, unit: 'pcs', reorder_level: 5, status: 'good', notes: '', is_folder: false, parent_id: (folderNavigation.currentFolder?.id || null), classification: '', unit_price: '' });
             setItemModal({ open: true, mode: 'add', data: null });
           }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
         )}
@@ -277,9 +287,10 @@ export default function Supplies() {
         <div className="space-y-6">
           <div className="flex items-center gap-3 bg-white border border-[#F3F4F6] rounded-2xl px-6 py-1 max-w-md shadow-sm">
             <Search className="text-[#9CA3AF]" size={18} />
-            <input className="bg-transparent border-none focus:ring-0 w-full h-11 text-[14px] placeholder:text-[#9CA3AF]" placeholder="Search items..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <input className="bg-transparent border-none focus:ring-0 w-full h-11 text-[14px] placeholder:text-[#9CA3AF]" placeholder="Search items..." value={search} onChange={(e) => { setSearch(e.target.value); folderNavigation.navigateToFolder(-1); }} />
           </div>
 
+          <FolderBreadcrumb breadcrumbs={folderNavigation.breadcrumbs} navigateToFolder={folderNavigation.navigateToFolder} itemCount={visibleItems.length} search={search} />
           <div className="system-card p-0 overflow-hidden shadow-sm">
             <div className="overflow-x-auto table-scroll">
               <table className="w-full text-left">
@@ -294,7 +305,7 @@ export default function Supplies() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#F3F4F6]">
-                  {filtered.map(item => {
+                  {visibleItems.map(item => {
                     const parentFolder = item.parent_id ? items.find(i => i.id === item.parent_id) : null;
                     return (
                       <tr key={item.id} className={`hover:bg-[#F9FAFB] transition-colors ${item.is_folder ? 'border-l-4 border-[#A0604E] bg-orange-50/10' : ''}`}>
@@ -304,9 +315,14 @@ export default function Supplies() {
                               {item.is_folder ? <Folder size={20} /> : <Truck size={20} />}
                             </div>
                             <div>
-                              <span className="font-bold text-[#1A1A1A] block uppercase tracking-tight">
-                                {item.name}
-                              </span>
+                              {item.is_folder ? (
+                                <button type="button" onClick={() => { setSearch(''); folderNavigation.openFolder(item); }} aria-label={`Open folder ${item.name}`} className="text-left font-bold text-[#1A1A1A] uppercase tracking-tight transition-colors hover:text-[#A0604E]">
+                                  {item.name}
+                                  <span className="ml-2 text-[9px] font-black uppercase tracking-widest text-[#A0604E]">Open</span>
+                                </button>
+                              ) : (
+                                <span className="font-bold text-[#1A1A1A] block uppercase tracking-tight">{item.name}</span>
+                              )}
                               <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest block mt-0.5">
                                 {parentFolder ? `Folder: ${parentFolder.name}  •  ` : ''}
                                 {item.classification ? `Class: ${item.classification}  •  ` : ''}
