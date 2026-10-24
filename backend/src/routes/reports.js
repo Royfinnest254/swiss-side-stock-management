@@ -57,27 +57,27 @@ function reportRangeLabel(range, inclusiveEnd = false) {
 
 async function getActivityRows(range) {
   const [rows] = await pool.query(`
-    SELECT 'Kitchen' AS module, i.name AS item_name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name AS action_by
+    SELECT 'Kitchen' AS module, i.name AS item_name, COALESCE(t.unit, i.unit) AS unit, t.action, t.quantity, t.transaction_date, u.display_name AS action_by
     FROM kitchen_transactions t JOIN kitchen_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     UNION ALL
-    SELECT 'Spa', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    SELECT 'Spa', i.name, COALESCE(t.unit, i.unit), t.action, t.quantity, t.transaction_date, u.display_name
     FROM spa_transactions t JOIN spa_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     UNION ALL
-    SELECT 'Shop', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    SELECT 'Shop', i.name, COALESCE(t.unit, i.unit), t.action, t.quantity, t.transaction_date, u.display_name
     FROM shop_transactions t JOIN shop_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     UNION ALL
-    SELECT 'Gym', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    SELECT 'Gym', i.name, COALESCE(t.unit, i.unit), t.action, t.quantity, t.transaction_date, u.display_name
     FROM gym_transactions t JOIN gym_inventory i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     UNION ALL
-    SELECT 'Supplies', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    SELECT 'Supplies', i.name, COALESCE(t.unit, i.unit), t.action, t.quantity, t.transaction_date, u.display_name
     FROM supplies_transactions t JOIN supplies_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     UNION ALL
-    SELECT 'Laundry', i.name, i.unit, t.action, t.quantity, t.transaction_date, u.display_name
+    SELECT 'Laundry', i.name, COALESCE(t.unit, i.unit), t.action, t.quantity, t.transaction_date, u.display_name
     FROM laundry_transactions t JOIN laundry_items i ON t.item_id = i.id LEFT JOIN users u ON t.action_by = u.id
     WHERE t.transaction_date >= ? AND t.transaction_date < DATE_ADD(?, INTERVAL 1 DAY)
     ORDER BY transaction_date DESC

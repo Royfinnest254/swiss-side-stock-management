@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const { normalizeInventoryQuantities, parsePositiveQuantity } = require('../utils/inventoryQuantity');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -15,7 +16,11 @@ router.get('/items', async (req, res) => {
 });
 
 router.post('/items', async (req, res) => {
-  const { name, quantity, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const { name, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const quantityPayload = normalizeInventoryQuantities(req.body);
+  if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+  const stockQuantity = quantityPayload.quantity;
+  const openedQuantity = quantityPayload.opened_quantity_remaining;
   const rawSection = req.body.section || req.body.category;
   if (!name || !rawSection) return res.status(400).json({ error: 'Name and section/category required.' });
 
@@ -25,25 +30,25 @@ router.post('/items', async (req, res) => {
   }
 
   try {
-    let finalQty = quantity || 0;
+    let finalQty = stockQuantity || 0;
     let finalReorder = reorder_level || 0;
     let finalCondition = 'good';
 
     if (normalizedSection === 'products') {
       finalCondition = null;
     } else {
-      finalQty = quantity || 1;
+      finalQty = stockQuantity || 1;
       finalReorder = 0;
     }
 
     const [result] = await pool.query(
-      'INSERT INTO spa_items (name, section, quantity, unit, reorder_level, condition_status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, normalizedSection, finalQty, unit || null, finalReorder, finalCondition, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
+      'INSERT INTO spa_items (name, section, quantity, opened_quantity_remaining, unit, reorder_level, condition_status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, normalizedSection, finalQty, openedQuantity, unit || null, finalReorder, finalCondition, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
 
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, action_by) VALUES (?, "added", ?, CURDATE(), ?)',
-      [result.insertId, finalQty, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, action_by) VALUES (?, "added", ?, ?, CURDATE(), ?)',
+      [result.insertId, finalQty, unit || 'pcs', req.user.id]
     );
 
     res.status(201).json({ success: true, id: result.insertId });
@@ -54,7 +59,11 @@ router.post('/items', async (req, res) => {
 });
 
 router.put('/items/:id', async (req, res) => {
-  const { name, unit, reorder_level, notes, quantity, is_folder, parent_id, classification, unit_price } = req.body;
+  const { name, unit, reorder_level, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const quantityPayload = normalizeInventoryQuantities(req.body);
+  if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+  const stockQuantity = quantityPayload.quantity;
+  const openedQuantity = quantityPayload.opened_quantity_remaining;
   const rawSection = req.body.section || req.body.category;
   if (!rawSection) return res.status(400).json({ error: 'Section/category is required.' });
 
@@ -65,12 +74,12 @@ router.put('/items/:id', async (req, res) => {
 
   try {
     await pool.query(
-      'UPDATE spa_items SET name = ?, section = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
-      [name, normalizedSection, unit || null, reorder_level || 0, notes || null, quantity || 0, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
+      'UPDATE spa_items SET name = ?, section = ?, unit = ?, reorder_level = ?, notes = ?, quantity = ?, opened_quantity_remaining = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, normalizedSection, unit || null, reorder_level || 0, notes || null, stockQuantity, openedQuantity, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, transaction_date, action_by) VALUES (?, "edited", CURDATE(), ?)',
-      [req.params.id, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, reason, transaction_date, action_by) VALUES (?, "edited", ?, ?, "Stock balance updated", CURDATE(), ?)',
+      [req.params.id, stockQuantity, unit || 'pcs', req.user.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -99,9 +108,9 @@ router.delete('/items/:id', async (req, res) => {
 // FIX: Hardened Withdraw & Restock (Removed section="products" filter bug)
 router.post('/withdraw', async (req, res) => {
   const { item_id, quantity, reason, transaction_date } = req.body;
-  const qty = parseFloat(quantity);
+  const qty = parsePositiveQuantity(quantity);
   
-  if (!item_id || isNaN(qty) || qty <= 0) {
+  if (!item_id || qty == null) {
     return res.status(400).json({ error: 'Valid Item ID and quantity are required.' });
   }
 
@@ -115,19 +124,20 @@ router.post('/withdraw', async (req, res) => {
       tDate = transaction_date;
     }
 
-    const [items] = await pool.query('SELECT quantity FROM spa_items WHERE id = ? AND is_active = 1', [item_id]);
+    const [items] = await pool.query('SELECT quantity, unit, opened_quantity_remaining FROM spa_items WHERE id = ? AND is_active = 1', [item_id]);
     if (!items.length) return res.status(404).json({ error: 'Item not found.' });
+    const unitForTransaction = items[0].unit || 'pcs';
     
     if (parseFloat(items[0].quantity) < qty) {
       return res.status(400).json({ error: `Insufficient stock. Available: ${items[0].quantity}` });
     }
 
-    await pool.query('UPDATE spa_items SET quantity = quantity - ?, last_withdrawn_at = NOW() WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
+    await pool.query('UPDATE spa_items SET quantity = quantity - ?, opened_quantity_remaining = CASE WHEN opened_quantity_remaining IS NULL THEN NULL ELSE GREATEST(opened_quantity_remaining - ?, 0) END, last_withdrawn_at = NOW() WHERE id = ? AND quantity >= ?', [qty, qty, item_id, qty]);
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM spa_items WHERE id = ?', [item_id]);
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by) VALUES (?, "withdraw", ?, COALESCE(?, CURDATE()), ?, ?)',
-      [item_id, qty, tDate, reason || null, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by) VALUES (?, "withdraw", ?, ?, COALESCE(?, CURDATE()), ?, ?)',
+      [item_id, qty, unitForTransaction, tDate, reason || null, req.user.id]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
@@ -139,9 +149,9 @@ router.post('/withdraw', async (req, res) => {
 
 router.post('/restock', async (req, res) => {
   const { item_id, quantity, reason, transaction_date, unit_price_paid } = req.body;
-  const qty = parseFloat(quantity);
+  const qty = parsePositiveQuantity(quantity);
 
-  if (!item_id || isNaN(qty) || qty <= 0) {
+  if (!item_id || qty == null) {
     return res.status(400).json({ error: 'Valid Item ID and quantity are required.' });
   }
 
@@ -153,13 +163,17 @@ router.post('/restock', async (req, res) => {
       if (selectedDate > today) return res.status(400).json({ error: 'Restock date cannot be in the future.' });
     }
 
+    const [[stockItem]] = await pool.query('SELECT unit FROM spa_items WHERE id = ?', [item_id]);
+    if (!stockItem) return res.status(404).json({ error: 'Item not found.' });
+    const unitForTransaction = stockItem.unit || 'pcs';
+
     await pool.query(
       'UPDATE spa_items SET quantity = quantity + ?, last_restocked_at = NOW(), unit_price = COALESCE(?, unit_price) WHERE id = ?',
       [qty, unit_price_paid, item_id]
     );
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, COALESCE(?, CURDATE()), ?, ?, ?)',
-      [item_id, qty, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, qty, unitForTransaction, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });

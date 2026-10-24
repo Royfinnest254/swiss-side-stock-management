@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const { normalizeInventoryQuantities, parsePositiveQuantity } = require('../utils/inventoryQuantity');
 const { requireAuth } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -17,17 +18,21 @@ router.get('/inventory', async (req, res) => {
 
 // POST add new item — accepts name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification
 router.post('/inventory', async (req, res) => {
-  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const { name, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const quantityPayload = normalizeInventoryQuantities(req.body);
+  if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+  const stockQuantity = quantityPayload.quantity;
+  const openedQuantity = quantityPayload.opened_quantity_remaining;
   if (!name) return res.status(400).json({ error: 'Item name required.' });
   try {
     const [result] = await pool.query(
-      'INSERT INTO gym_inventory (name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
+      'INSERT INTO gym_inventory (name, quantity, opened_quantity_remaining, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, stockQuantity, openedQuantity, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
-    if (quantity && quantity > 0) {
+    if (stockQuantity > 0) {
       await pool.query(
-        'INSERT INTO gym_transactions (item_id, action, quantity, transaction_date, action_by) VALUES (?, "added", ?, CURDATE(), ?)',
-        [result.insertId, quantity, req.user.id]
+        'INSERT INTO gym_transactions (item_id, action, quantity, unit, transaction_date, action_by) VALUES (?, "added", ?, ?, CURDATE(), ?)',
+        [result.insertId, stockQuantity, unit || 'pcs', req.user.id]
       );
     }
     res.status(201).json({ success: true });
@@ -39,11 +44,19 @@ router.post('/inventory', async (req, res) => {
 
 // PUT update item
 router.put('/inventory/:id', async (req, res) => {
-  const { name, quantity, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const { name, unit, reorder_level, status, notes, is_folder, parent_id, classification, unit_price } = req.body;
+  const quantityPayload = normalizeInventoryQuantities(req.body);
+  if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+  const stockQuantity = quantityPayload.quantity;
+  const openedQuantity = quantityPayload.opened_quantity_remaining;
   try {
     await pool.query(
-      'UPDATE gym_inventory SET name = ?, quantity = ?, unit = ?, reorder_level = ?, status = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
-      [name, quantity || 0, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
+      'UPDATE gym_inventory SET name = ?, quantity = ?, opened_quantity_remaining = ?, unit = ?, reorder_level = ?, status = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, stockQuantity, openedQuantity, unit || 'pcs', reorder_level || 0, status || 'ok', notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
+    );
+    await pool.query(
+      'INSERT INTO gym_transactions (item_id, action, quantity, unit, reason, transaction_date, action_by) VALUES (?, "edited", ?, ?, "Stock balance updated", CURDATE(), ?)',
+      [req.params.id, stockQuantity, unit || 'pcs', req.user.id]
     );
     res.json({ success: true });
   } catch (err) {
@@ -76,8 +89,8 @@ router.post('/inventory/transaction', async (req, res) => {
   if (!item_id || !action || !quantity) return res.status(400).json({ error: 'item_id, action and quantity required.' });
   if (!['restock', 'withdraw'].includes(action)) return res.status(400).json({ error: 'Action must be restock or withdraw.' });
   
-  const qty = parseFloat(quantity);
-  if (isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid quantity.' });
+  const qty = parsePositiveQuantity(quantity);
+  if (qty == null) return res.status(400).json({ error: 'Invalid quantity.' });
 
   try {
     let tDate = null;
@@ -90,12 +103,12 @@ router.post('/inventory/transaction', async (req, res) => {
     }
 
     if (action === 'withdraw') {
-      const [items] = await pool.query('SELECT quantity FROM gym_inventory WHERE id = ?', [item_id]);
+      const [items] = await pool.query('SELECT quantity, unit, opened_quantity_remaining FROM gym_inventory WHERE id = ?', [item_id]);
       if (!items.length) return res.status(404).json({ error: 'Item not found.' });
       if (parseFloat(items[0].quantity) < qty) {
         return res.status(400).json({ error: `Insufficient stock. Available: ${items[0].quantity}` });
       }
-      await pool.query('UPDATE gym_inventory SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
+      await pool.query('UPDATE gym_inventory SET quantity = quantity - ?, opened_quantity_remaining = CASE WHEN opened_quantity_remaining IS NULL THEN NULL ELSE GREATEST(opened_quantity_remaining - ?, 0) END WHERE id = ? AND quantity >= ?', [qty, qty, item_id, qty]);
     } else {
       await pool.query(
         'UPDATE gym_inventory SET quantity = quantity + ?, unit_price = COALESCE(?, unit_price) WHERE id = ?',
@@ -103,9 +116,11 @@ router.post('/inventory/transaction', async (req, res) => {
       );
     }
 
+    const [[stockItem]] = await pool.query('SELECT unit FROM gym_inventory WHERE id = ?', [item_id]);
+    if (!stockItem) return res.status(404).json({ error: 'Item not found.' });
     await pool.query(
-      'INSERT INTO gym_transactions (item_id, action, quantity, transaction_date, reason, action_by, unit_price_paid) VALUES (?, ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
-      [item_id, action, qty, tDate, reason || null, req.user.id, action === 'restock' && unit_price_paid != null ? unit_price_paid : null]
+      'INSERT INTO gym_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by, unit_price_paid) VALUES (?, ?, ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, action, qty, stockItem.unit || 'pcs', tDate, reason || null, req.user.id, action === 'restock' && unit_price_paid != null ? unit_price_paid : null]
     );
     const [updated] = await pool.query('SELECT * FROM gym_inventory WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
