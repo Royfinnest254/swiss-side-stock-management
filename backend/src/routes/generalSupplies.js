@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const { normalizeInventoryQuantities, parsePositiveQuantity } = require('../utils/inventoryQuantity');
 const { requireAuth, requireAdmin, requireStaff } = require('../middleware/auth');
 
 router.use(requireAuth);
@@ -16,12 +17,26 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
+    const { name, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
+    const quantityPayload = normalizeInventoryQuantities(req.body);
+    if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+    const stockQuantity = quantityPayload.quantity;
+    const openedQuantity = quantityPayload.opened_quantity_remaining;
     if (!name || !unit || !category) return res.status(400).json({ error: 'Name, unit, and category required.' });
     const [result] = await pool.query(
-      'INSERT INTO general_supplies (name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [name, quantity || 0, unit, reorder_level || 0, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
+      'INSERT INTO general_supplies (name, quantity, opened_quantity_remaining, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, stockQuantity, openedQuantity, unit, reorder_level || 0, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null]
     );
+    if (stockQuantity > 0) {
+      try {
+        await pool.query(
+          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Opening balance")',
+          [result.insertId, name, stockQuantity, unit, req.user.display_name || req.user.email]
+        );
+      } catch (transactionError) {
+        console.error('[General Supplies Opening Balance Log Error]', transactionError.message);
+      }
+    }
     res.json({ success: true, id: result.insertId });
   } catch (err) {
     console.error(err);
@@ -31,11 +46,43 @@ router.post('/', requireStaff, async (req, res) => {
 
 router.put('/:id', requireStaff, async (req, res) => {
   try {
-    const { name, quantity, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
+    const { name, unit, reorder_level, category, notes, is_folder, parent_id, classification, unit_price } = req.body;
+    const quantityPayload = normalizeInventoryQuantities(req.body);
+    if (quantityPayload.error) return res.status(400).json({ error: quantityPayload.error });
+    const stockQuantity = quantityPayload.quantity;
+    const openedQuantity = quantityPayload.opened_quantity_remaining;
+    const [existingRows] = await pool.query('SELECT quantity, unit FROM general_supplies WHERE id = ? AND is_active = 1', [req.params.id]);
+    if (!existingRows.length) return res.status(404).json({ error: 'Item not found.' });
+    const existingQuantity = Number(existingRows[0].quantity || 0);
+    const existingUnit = existingRows[0].unit || unit;
     await pool.query(
-      'UPDATE general_supplies SET name = ?, quantity = ?, unit = ?, reorder_level = ?, category = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
-      [name, quantity, unit, reorder_level, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
+      'UPDATE general_supplies SET name = ?, quantity = ?, opened_quantity_remaining = ?, unit = ?, reorder_level = ?, category = ?, notes = ?, is_folder = ?, parent_id = ?, classification = ?, unit_price = ? WHERE id = ?',
+      [name, stockQuantity, openedQuantity, unit, reorder_level, category, notes || null, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
+    try {
+      if (existingUnit !== unit && existingQuantity > 0) {
+        await pool.query(
+          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "WITHDRAWAL", ?, ?, ?, "Unit changed; previous balance closed")',
+          [req.params.id, name, existingQuantity, existingUnit, req.user.display_name || req.user.email]
+        );
+        if (stockQuantity > 0) {
+          await pool.query(
+            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Balance recounted in new unit")',
+            [req.params.id, name, stockQuantity, unit, req.user.display_name || req.user.email]
+          );
+        }
+      } else {
+        const difference = stockQuantity - existingQuantity;
+        if (difference !== 0) {
+          await pool.query(
+            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, ?, ?, ?, ?, "Manual stock balance correction")',
+            [req.params.id, name, difference > 0 ? 'RESTOCK' : 'WITHDRAWAL', Math.abs(difference), unit, req.user.display_name || req.user.email]
+          );
+        }
+      }
+    } catch (transactionError) {
+      console.error('[General Supplies Balance Log Error]', transactionError.message);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -60,8 +107,8 @@ router.delete('/:id', requireAdmin, async (req, res) => {
 // Feature 4, 5, 6: Transactional Endpoints
 router.post('/withdraw', requireStaff, async (req, res) => {
   const { item_id, quantity, reason, transaction_date } = req.body;
-  const qty = parseFloat(quantity);
-  if (!item_id || isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid ID/quantity.' });
+  const qty = parsePositiveQuantity(quantity);
+  if (!item_id || qty == null) return res.status(400).json({ error: 'Invalid ID/quantity.' });
 
   if (transaction_date) {
     const selectedDate = new Date(transaction_date);
@@ -75,7 +122,7 @@ router.post('/withdraw', requireStaff, async (req, res) => {
     if (!items.length) return res.status(404).json({ error: 'Item not found.' });
     if (parseFloat(items[0].quantity) < qty) return res.status(400).json({ error: 'Insufficient stock.' });
 
-    await pool.query('UPDATE general_supplies SET quantity = quantity - ? WHERE id = ? AND quantity >= ?', [qty, item_id, qty]);
+    await pool.query('UPDATE general_supplies SET quantity = quantity - ?, opened_quantity_remaining = CASE WHEN opened_quantity_remaining IS NULL THEN NULL ELSE GREATEST(opened_quantity_remaining - ?, 0) END WHERE id = ? AND quantity >= ?', [qty, qty, item_id, qty]);
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM general_supplies WHERE id = ?', [item_id]);
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     // Use generic transactions table if module-specific doesn't exist
@@ -95,8 +142,8 @@ router.post('/withdraw', requireStaff, async (req, res) => {
 
 router.post('/restock', requireStaff, async (req, res) => {
   const { item_id, quantity, reason, transaction_date, unit_price_paid } = req.body;
-  const qty = parseFloat(quantity);
-  if (!item_id || isNaN(qty) || qty <= 0) return res.status(400).json({ error: 'Invalid ID/quantity.' });
+  const qty = parsePositiveQuantity(quantity);
+  if (!item_id || qty == null) return res.status(400).json({ error: 'Invalid ID/quantity.' });
 
   if (transaction_date) {
     const selectedDate = new Date(transaction_date);

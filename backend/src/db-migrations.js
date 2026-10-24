@@ -39,6 +39,23 @@ async function addColumnIfMissing(table, column, definition, afterColumn = null)
   }
 }
 
+async function ensureDecimalColumn(table, column) {
+  const [rows] = await pool.query(`SHOW COLUMNS FROM \`${table}\` LIKE ?`, [column]);
+  if (!rows.length || /^decimal\(12,3\)/i.test(rows[0].Type)) return;
+
+  const col = rows[0];
+  const nullable = col.Null === 'YES' ? 'NULL' : 'NOT NULL';
+  const defaultValue = col.Default == null
+    ? ''
+    : ` DEFAULT ${Number.isFinite(Number(col.Default)) ? Number(col.Default).toFixed(3) : `'${String(col.Default).replace(/'/g, "''")}'`}`;
+  try {
+    await pool.query(`ALTER TABLE \`${table}\` MODIFY COLUMN \`${column}\` DECIMAL(12,3) ${nullable}${defaultValue}`);
+    console.log(`[AutoMigration] Changed ${table}.${column} to DECIMAL(12,3).`);
+  } catch (err) {
+    console.error(`[AutoMigration ERROR] Failed to adjust ${table}.${column}:`, err.message);
+  }
+}
+
 async function runAutoMigrations() {
   console.log('[AutoMigration] Checking database schema health...');
 
@@ -169,6 +186,39 @@ async function runAutoMigrations() {
     if (await tableExists('supplies_items')) {
       await addColumnIfMissing('supplies_items', 'category', "VARCHAR(100) DEFAULT 'Other'");
       await addColumnIfMissing('supplies_items', 'notes', 'TEXT NULL');
+    }
+
+    // Keep measured inventory quantities to three decimal places and retain
+    // the optional amount left in one opened package for each stock item.
+    const quantityTables = [
+      ['kitchen_items', 'kitchen_transactions'],
+      ['spa_items', 'spa_transactions'],
+      ['shop_items', 'shop_transactions'],
+      ['laundry_items', 'laundry_transactions'],
+      ['gym_inventory', 'gym_transactions'],
+      ['supplies_items', 'supplies_transactions'],
+      ['general_supplies', null],
+    ];
+    for (const [itemTable, transactionTable] of quantityTables) {
+      if (await tableExists(itemTable)) {
+        await addColumnIfMissing(itemTable, 'opened_quantity_remaining', 'DECIMAL(12,3) NULL DEFAULT NULL');
+        await ensureDecimalColumn(itemTable, 'quantity');
+        await ensureDecimalColumn(itemTable, 'reorder_level');
+      }
+      if (transactionTable && await tableExists(transactionTable)) {
+        await ensureDecimalColumn(transactionTable, 'quantity');
+        await addColumnIfMissing(transactionTable, 'unit', 'VARCHAR(50) DEFAULT NULL');
+        try {
+          await pool.query(
+            `UPDATE \`${transactionTable}\` t JOIN \`${itemTable}\` i ON i.id = t.item_id SET t.unit = i.unit WHERE t.unit IS NULL OR t.unit = ''`
+          );
+        } catch (err) {
+          console.error(`[AutoMigration ERROR] Failed to backfill ${transactionTable}.unit:`, err.message);
+        }
+      }
+    }
+    if (await tableExists('transactions')) {
+      await ensureDecimalColumn('transactions', 'quantity');
     }
     if (await tableExists('laundry_items')) {
       await addColumnIfMissing('laundry_items', 'notes', 'TEXT NULL');

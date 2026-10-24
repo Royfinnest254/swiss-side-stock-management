@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
+import InventoryQuantityFields from '../components/InventoryQuantityFields';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
 import FolderBreadcrumb from '../components/FolderBreadcrumb';
 import { useFolderNavigation } from '../hooks/useFolderNavigation';
@@ -91,6 +92,7 @@ export default function Spa() {
     const payload = {
       name: itemForm.name,
       quantity: itemForm.is_folder ? 0 : itemForm.quantity,
+      opened_quantity_remaining: itemForm.is_folder || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
       unit: itemForm.is_folder ? 'folder' : itemForm.unit,
       reorder_level: itemForm.is_folder ? 0 : itemForm.reorder_level,
       category: itemForm.is_folder ? 'Product' : itemForm.category,
@@ -358,6 +360,9 @@ export default function Spa() {
                                 <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
                                 <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit || 'pcs'}</span>
                               </div>
+                              {item.opened_quantity_remaining != null && item.opened_quantity_remaining !== '' && (
+                                <div className="mt-1 text-[10px] font-semibold text-[#8A6B2E]">Open pack: {item.opened_quantity_remaining} {item.unit || 'units'}</div>
+                              )}
                               <span className="md:hidden mt-1 block text-[10px] font-black text-[#A0604E] uppercase tracking-widest">Price: KES {item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
                             </>
                           )}
@@ -490,7 +495,7 @@ export default function Spa() {
                         <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${t.action === 'restock' || t.action === 'added' ? 'bg-[#EAF3DE] text-[#3B6D11]' : 'bg-[#FAEEDA] text-[#854F0B]'}`}>{t.action}</span>
                       </td>
                       <td className="px-6 py-4 font-bold uppercase">{t.item_name}</td>
-                      <td className="px-6 py-4 font-black">{t.quantity}</td>
+                      <td className="px-6 py-4 font-black">{t.quantity} {t.unit || ''}</td>
                       <td className="px-6 py-4 text-[#6B7280]">{t.reason || t.notes || '—'}</td>
                       <td className="px-6 py-4 font-medium text-[#4B5563]">{t.action_by_name || 'System'}</td>
                     </tr>
@@ -659,7 +664,7 @@ export default function Spa() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Transaction Quantity</label>
-              <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
+              <input type="number" step="0.001" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.001" autoFocus />
             </div>
 
             {stockModal.type === 'restock' && (
@@ -764,6 +769,15 @@ export default function Spa() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
                   <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, ml, liters" />
                 </div>
+                <InventoryQuantityFields
+                  quantity={itemForm.quantity}
+                  openedQuantityRemaining={itemForm.opened_quantity_remaining}
+                  unit={itemForm.unit}
+                  onQuantityChange={e => setItemForm({...itemForm, quantity: e.target.value})}
+                  onOpenedQuantityChange={e => setItemForm({...itemForm, opened_quantity_remaining: e.target.value})}
+                />
+
+
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>

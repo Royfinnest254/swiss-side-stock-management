@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
+import InventoryQuantityFields from '../components/InventoryQuantityFields';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
 import FolderBreadcrumb from '../components/FolderBreadcrumb';
 import { useFolderNavigation } from '../hooks/useFolderNavigation';
@@ -67,6 +68,7 @@ export default function GeneralSupplies() {
     const payload = {
       name: itemForm.name,
       quantity: itemForm.is_folder ? 0 : itemForm.quantity,
+      opened_quantity_remaining: itemForm.is_folder || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
       unit: itemForm.is_folder ? 'folder' : itemForm.unit,
       reorder_level: itemForm.is_folder ? 0 : itemForm.reorder_level,
       notes: itemForm.notes || null,
@@ -218,7 +220,10 @@ export default function GeneralSupplies() {
                             <span className="text-lg font-black text-[#1A1A1A] tracking-tighter">{item.quantity}</span>
                             <span className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest">{item.unit}</span>
                           </div>
-                          <span className="md:hidden mt-1 block text-[10px] font-black text-[#A0604E] uppercase tracking-widest">Price: KES {item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
+                          {item.opened_quantity_remaining != null && item.opened_quantity_remaining !== '' && (
+                                <div className="mt-1 text-[10px] font-semibold text-[#8A6B2E]">Open pack: {item.opened_quantity_remaining} {item.unit || 'units'}</div>
+                              )}
+                              <span className="md:hidden mt-1 block text-[10px] font-black text-[#A0604E] uppercase tracking-widest">Price: KES {item.unit_price != null && item.unit_price !== '' ? parseFloat(item.unit_price).toFixed(2) : '—'}</span>
                         </>
                       )}
                     </td>
@@ -327,7 +332,7 @@ export default function GeneralSupplies() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Transaction Quantity</label>
-              <input type="number" step="0.01" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.01" autoFocus />
+              <input type="number" step="0.001" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.001" autoFocus />
             </div>
 
             {stockModal.type === 'restock' && (
@@ -431,6 +436,15 @@ export default function GeneralSupplies() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
                   <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, liters, boxes" />
                 </div>
+                <InventoryQuantityFields
+                  quantity={itemForm.quantity}
+                  openedQuantityRemaining={itemForm.opened_quantity_remaining}
+                  unit={itemForm.unit}
+                  onQuantityChange={e => setItemForm({...itemForm, quantity: e.target.value})}
+                  onOpenedQuantityChange={e => setItemForm({...itemForm, opened_quantity_remaining: e.target.value})}
+                />
+
+
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
                   <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
