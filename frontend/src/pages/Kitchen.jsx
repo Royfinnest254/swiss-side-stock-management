@@ -245,6 +245,10 @@ export default function Kitchen() {
 
   const folderNavigation = useFolderNavigation(items);
   const visibleItems = folderNavigation.getVisibleItems(filtered, search);
+  const openNewItemModal = () => {
+    setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, category: 'Consumables', notes: '', is_folder: false, parent_id: (folderNavigation.currentFolder?.id || null), classification: '', unit_price: '' });
+    setItemModal({ open: true, mode: 'add', data: null });
+  };
 
   if (loading && !items.length && !maintenance.length && !transactions.length) return (
     <div className="h-[60vh] flex items-center justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={32} /></div>
@@ -267,10 +271,7 @@ export default function Kitchen() {
           </div>
         </div>
         {activeTab === 'list' && (
-          <button onClick={() => {
-            setItemForm({ name: '', quantity: 0, unit: 'pcs', reorder_level: 5, category: 'Consumables', notes: '', is_folder: false, parent_id: (folderNavigation.currentFolder?.id || null), classification: '', unit_price: '' });
-            setItemModal({ open: true, mode: 'add', data: null });
-          }} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> REGISTER ITEM</button>
+          <button onClick={openNewItemModal} className="btn-primary h-12 px-8 shadow-premium"><Plus size={18} /> {folderNavigation.currentFolder ? 'ADD TO FOLDER' : 'REGISTER ITEM'}</button>
         )}
       </div>
 
@@ -294,7 +295,7 @@ export default function Kitchen() {
             <input className="bg-transparent border-none focus:ring-0 w-full h-11 text-[14px] placeholder:text-[#9CA3AF]" placeholder="Search items..." value={search} onChange={(e) => { setSearch(e.target.value); folderNavigation.navigateToFolder(-1); }} />
           </div>
 
-          <FolderBreadcrumb breadcrumbs={folderNavigation.breadcrumbs} navigateToFolder={folderNavigation.navigateToFolder} itemCount={visibleItems.length} search={search} />
+          <FolderBreadcrumb breadcrumbs={folderNavigation.breadcrumbs} navigateToFolder={folderNavigation.navigateToFolder} itemCount={visibleItems.length} search={search} currentFolder={folderNavigation.currentFolder} onAddItem={openNewItemModal} />
           <div className="system-card p-0 overflow-hidden shadow-sm">
             <div className="overflow-x-auto table-scroll">
               <table className="w-full text-left">
