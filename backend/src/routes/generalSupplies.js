@@ -45,6 +45,10 @@ router.put('/:id', requireStaff, async (req, res) => {
 
 router.delete('/:id', requireAdmin, async (req, res) => {
   try {
+    const [children] = await pool.query('SELECT id FROM general_supplies WHERE parent_id = ? AND is_active = 1 LIMIT 1', [req.params.id]);
+    if (children.length) {
+      return res.status(409).json({ error: 'Folder contains items. Move or remove them before deleting it.' });
+    }
     await pool.query('UPDATE general_supplies SET is_active = 0, deleted_by = ?, deleted_at = NOW() WHERE id = ?', [req.user.id, req.params.id]);
     res.json({ success: true });
   } catch (err) {
