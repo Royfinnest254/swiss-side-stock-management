@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const { resolveStaffMemberName } = require('../utils/staffMember');
 const { normalizeInventoryQuantities, parsePositiveQuantity } = require('../utils/inventoryQuantity');
 const { requireAuth } = require('../middleware/auth');
 
@@ -47,8 +48,8 @@ router.post('/items', async (req, res) => {
     );
 
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, action_by) VALUES (?, "added", ?, ?, CURDATE(), ?)',
-      [result.insertId, finalQty, unit || 'pcs', req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, action_by, staff_member_name) VALUES (?, "added", ?, ?, CURDATE(), ?, ?)',
+      [result.insertId, finalQty, unit || 'pcs', req.user.id, resolveStaffMemberName(req)]
     );
 
     res.status(201).json({ success: true, id: result.insertId });
@@ -78,8 +79,8 @@ router.put('/items/:id', async (req, res) => {
       [name, normalizedSection, unit || null, reorder_level || 0, notes || null, stockQuantity, openedQuantity, is_folder ? 1 : 0, parent_id || null, classification || null, unit_price != null ? unit_price : null, req.params.id]
     );
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, unit, reason, transaction_date, action_by) VALUES (?, "edited", ?, ?, "Stock balance updated", CURDATE(), ?)',
-      [req.params.id, stockQuantity, unit || 'pcs', req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, reason, transaction_date, action_by, staff_member_name) VALUES (?, "edited", ?, ?, "Stock balance updated", CURDATE(), ?, ?)',
+      [req.params.id, stockQuantity, unit || 'pcs', req.user.id, resolveStaffMemberName(req)]
     );
     res.json({ success: true });
   } catch (err) {
@@ -136,8 +137,8 @@ router.post('/withdraw', async (req, res) => {
     const [[{ remaining }]] = await pool.query('SELECT quantity as remaining FROM spa_items WHERE id = ?', [item_id]);
     if (remaining === undefined) return res.status(404).json({ error: 'Item not found.' });
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by) VALUES (?, "withdraw", ?, ?, COALESCE(?, CURDATE()), ?, ?)',
-      [item_id, qty, unitForTransaction, tDate, reason || null, req.user.id]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by, staff_member_name) VALUES (?, "withdraw", ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
+      [item_id, qty, unitForTransaction, tDate, reason || null, req.user.id, resolveStaffMemberName(req)]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
@@ -172,8 +173,8 @@ router.post('/restock', async (req, res) => {
       [qty, unit_price_paid, item_id]
     );
     await pool.query(
-      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by, unit_price_paid) VALUES (?, "restock", ?, ?, COALESCE(?, CURDATE()), ?, ?, ?)',
-      [item_id, qty, unitForTransaction, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null]
+      'INSERT INTO spa_transactions (item_id, action, quantity, unit, transaction_date, reason, action_by, unit_price_paid, staff_member_name) VALUES (?, "restock", ?, ?, COALESCE(?, CURDATE()), ?, ?, ?, ?)',
+      [item_id, qty, unitForTransaction, transaction_date || null, reason || null, req.user.id, unit_price_paid != null ? unit_price_paid : null, resolveStaffMemberName(req)]
     );
     const [updated] = await pool.query('SELECT * FROM spa_items WHERE id = ?', [item_id]);
     res.json({ success: true, item: updated[0] });
@@ -282,7 +283,7 @@ router.patch('/maintenance/:id/dismiss', async (req, res) => {
 router.get('/transactions', async (req, res) => {
   const { section, action, from_date, to_date, item_id } = req.query;
   let sql = `
-    SELECT t.*, i.name as item_name, i.section, u.display_name as action_by_name
+    SELECT t.*, i.name as item_name, i.section, COALESCE(NULLIF(u.display_name, ''), u.email) as action_by_name, COALESCE(NULLIF(t.staff_member_name, ''), NULLIF(u.display_name, ''), u.email) as staff_member_name
     FROM spa_transactions t
     JOIN spa_items i ON t.item_id = i.id
     LEFT JOIN users u ON t.action_by = u.id
@@ -294,7 +295,7 @@ router.get('/transactions', async (req, res) => {
   if (from_date) { sql += ' AND t.transaction_date >= ?'; params.push(from_date); }
   if (to_date) { sql += ' AND t.transaction_date <= ?'; params.push(to_date); }
   if (item_id) { sql += ' AND t.item_id = ?'; params.push(item_id); }
-  sql += ' ORDER BY t.created_at DESC LIMIT 200';
+  sql += ' ORDER BY t.transaction_date DESC, t.created_at DESC LIMIT 200';
   try {
     const [rows] = await pool.query(sql, params);
     res.json(rows);

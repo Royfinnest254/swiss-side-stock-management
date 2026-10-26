@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const pool = require('../db');
+const { resolveStaffMemberName } = require('../utils/staffMember');
 const { normalizeInventoryQuantities, parsePositiveQuantity } = require('../utils/inventoryQuantity');
 const { requireAuth, requireAdmin, requireStaff } = require('../middleware/auth');
 
@@ -12,6 +13,38 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error.' });
+  }
+});
+
+router.get('/transactions', async (req, res) => {
+  try {
+    const { item_id, from_date, to_date, action } = req.query;
+    let sql = `
+      SELECT t.*, DATE(t.created_at) AS transaction_date,
+        CASE WHEN t.notes LIKE 'Manual stock balance correction%'
+            OR t.notes LIKE 'Unit changed;%'
+            OR t.notes LIKE 'Balance recounted%' THEN 'edited'
+          WHEN t.type = 'RESTOCK' THEN 'restock'
+          WHEN t.type = 'WITHDRAWAL' THEN 'withdraw' ELSE 'edited' END AS action,
+        COALESCE(NULLIF(t.staff_member_name, ''), NULLIF(t.person, '')) AS staff_member_name,
+        COALESCE(NULLIF(u.display_name, ''), u.email) AS account_name
+      FROM transactions t
+      LEFT JOIN users u ON u.id = t.recorded_by_user_id
+      WHERE t.item_source = 'general_supplies'
+    `;
+    const params = [];
+    if (item_id) { sql += ' AND t.item_id = ?'; params.push(item_id); }
+    if (action === 'restock') sql += " AND t.type = 'RESTOCK' AND (t.notes IS NULL OR (t.notes NOT LIKE 'Manual stock balance correction%' AND t.notes NOT LIKE 'Balance recounted%'))";
+    if (action === 'withdraw') sql += " AND t.type = 'WITHDRAWAL' AND (t.notes IS NULL OR t.notes NOT LIKE 'Unit changed;%') AND (t.notes IS NULL OR t.notes NOT LIKE 'Manual stock balance correction%')";
+    if (action === 'edited') sql += " AND (t.notes LIKE 'Manual stock balance correction%' OR t.notes LIKE 'Unit changed;%' OR t.notes LIKE 'Balance recounted%' OR t.type NOT IN ('RESTOCK', 'WITHDRAWAL'))";
+    if (from_date) { sql += ' AND t.created_at >= ?'; params.push(from_date); }
+    if (to_date) { sql += ' AND t.created_at < DATE_ADD(?, INTERVAL 1 DAY)'; params.push(to_date); }
+    sql += ' ORDER BY t.created_at DESC LIMIT 200';
+    const [rows] = await pool.query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('[General Supplies History Error]', err.message);
+    res.status(500).json({ error: 'Could not load stock history.' });
   }
 });
 
@@ -30,8 +63,8 @@ router.post('/', requireStaff, async (req, res) => {
     if (stockQuantity > 0) {
       try {
         await pool.query(
-          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Opening balance")',
-          [result.insertId, name, stockQuantity, unit, req.user.display_name || req.user.email]
+          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, staff_member_name, recorded_by_user_id) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Opening balance", ?, ?)',
+          [result.insertId, name, stockQuantity, unit, resolveStaffMemberName(req), resolveStaffMemberName(req), req.user.id]
         );
       } catch (transactionError) {
         console.error('[General Supplies Opening Balance Log Error]', transactionError.message);
@@ -62,21 +95,21 @@ router.put('/:id', requireStaff, async (req, res) => {
     try {
       if (existingUnit !== unit && existingQuantity > 0) {
         await pool.query(
-          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "WITHDRAWAL", ?, ?, ?, "Unit changed; previous balance closed")',
-          [req.params.id, name, existingQuantity, existingUnit, req.user.display_name || req.user.email]
+          'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, staff_member_name, recorded_by_user_id) VALUES (?, "general_supplies", ?, "WITHDRAWAL", ?, ?, ?, "Unit changed; previous balance closed", ?, ?)',
+          [req.params.id, name, existingQuantity, existingUnit, resolveStaffMemberName(req), resolveStaffMemberName(req), req.user.id]
         );
         if (stockQuantity > 0) {
           await pool.query(
-            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Balance recounted in new unit")',
-            [req.params.id, name, stockQuantity, unit, req.user.display_name || req.user.email]
+            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, staff_member_name, recorded_by_user_id) VALUES (?, "general_supplies", ?, "RESTOCK", ?, ?, ?, "Balance recounted in new unit", ?, ?)',
+            [req.params.id, name, stockQuantity, unit, resolveStaffMemberName(req), resolveStaffMemberName(req), req.user.id]
           );
         }
       } else {
         const difference = stockQuantity - existingQuantity;
         if (difference !== 0) {
           await pool.query(
-            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes) VALUES (?, "general_supplies", ?, ?, ?, ?, ?, "Manual stock balance correction")',
-            [req.params.id, name, difference > 0 ? 'RESTOCK' : 'WITHDRAWAL', Math.abs(difference), unit, req.user.display_name || req.user.email]
+            'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, staff_member_name, recorded_by_user_id) VALUES (?, "general_supplies", ?, ?, ?, ?, ?, "Manual stock balance correction", ?, ?)',
+            [req.params.id, name, difference > 0 ? 'RESTOCK' : 'WITHDRAWAL', Math.abs(difference), unit, resolveStaffMemberName(req), resolveStaffMemberName(req), req.user.id]
           );
         }
       }
@@ -128,8 +161,8 @@ router.post('/withdraw', requireStaff, async (req, res) => {
     // Use generic transactions table if module-specific doesn't exist
     try {
       await pool.query(
-        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
-        [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
+        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at, staff_member_name, recorded_by_user_id) SELECT ?, "general_supplies", name, "WITHDRAWAL", ?, unit, ?, ?, COALESCE(?, NOW()), ?, ? FROM general_supplies WHERE id = ?',
+        [item_id, qty, resolveStaffMemberName(req), reason || null, transaction_date || null, resolveStaffMemberName(req), req.user.id, item_id]
       );
     } catch (txErr) { /* transactions table may not exist, skip silently */ }
     const [updated] = await pool.query('SELECT * FROM general_supplies WHERE id = ?', [item_id]);
@@ -161,8 +194,8 @@ router.post('/restock', requireStaff, async (req, res) => {
     }
     try {
       await pool.query(
-        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at) SELECT ?, "general_supplies", name, "RESTOCK", ?, unit, ?, ?, COALESCE(?, NOW()) FROM general_supplies WHERE id = ?',
-        [item_id, qty, req.user.display_name || req.user.email, reason || null, transaction_date || null, item_id]
+        'INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at, staff_member_name, recorded_by_user_id) SELECT ?, "general_supplies", name, "RESTOCK", ?, unit, ?, ?, COALESCE(?, NOW()), ?, ? FROM general_supplies WHERE id = ?',
+        [item_id, qty, resolveStaffMemberName(req), reason || null, transaction_date || null, resolveStaffMemberName(req), req.user.id, item_id]
       );
     } catch (txErr) { /* transactions table may not exist, skip silently */ }
     const [updated] = await pool.query('SELECT * FROM general_supplies WHERE id = ?', [item_id]);
