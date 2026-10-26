@@ -3,6 +3,8 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import InventoryQuantityFields from '../components/InventoryQuantityFields';
+import StaffMemberInput, { getDefaultStaffMemberName } from '../components/StaffMemberInput';
+import StockHistoryModal from '../components/StockHistoryModal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
 import FolderBreadcrumb from '../components/FolderBreadcrumb';
 import { useFolderNavigation } from '../hooks/useFolderNavigation';
@@ -28,6 +30,8 @@ export default function Laundry() {
   const [bulkMaintenanceData, setBulkMaintenanceData] = useState({ description: '', technician_name: '', status: 'pending', resolved_at: new Date().toISOString().split('T')[0] });
 
   const [stockModal, setStockModal] = useState({ open: false, type: 'restock', data: null });
+  const [historyItem, setHistoryItem] = useState(null);
+  const [staffMemberName, setStaffMemberName] = useState(getDefaultStaffMemberName);
   const [deleteModal, setDeleteModal] = useState({ open: false, data: null });
 
   const [itemForm, setItemForm] = useState({ 
@@ -120,6 +124,7 @@ export default function Laundry() {
 
     const payload = {
       name: itemForm.name,
+      staff_member_name: staffMemberName.trim(),
       quantity: itemForm.is_folder ? 0 : itemForm.quantity,
       opened_quantity_remaining: itemForm.is_folder || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
       unit: itemForm.is_folder ? 'folder' : itemForm.unit,
@@ -163,6 +168,7 @@ export default function Laundry() {
       const response = await api.post(endpoint, { 
         item_id: stockModal.data.id, 
         quantity: parseFloat(stockQty),
+        staff_member_name: staffMemberName.trim(),
         transaction_date: customDateEnabled ? stockDate : undefined,
         unit_price_paid: isRestock && restockUnitPrice !== '' ? parseFloat(restockUnitPrice) : undefined
       });
@@ -295,6 +301,7 @@ export default function Laundry() {
   const folderNavigation = useFolderNavigation(items);
   const visibleItems = folderNavigation.getVisibleItems(filtered, search);
   const openNewItemModal = () => {
+    setStaffMemberName(getDefaultStaffMemberName());
     setItemForm({ name: '', type: 'Products & Supplies', quantity: 0, unit: 'pcs', reorder_level: 5, notes: '', is_folder: false, parent_id: (folderNavigation.currentFolder?.id || null), classification: '', unit_price: '' });
     setItemModal({ open: true, mode: 'add', data: null });
   };
@@ -473,9 +480,12 @@ export default function Laundry() {
                               </button>
                             ) : (
                               <>
-                                <button title="Restock" onClick={() => setStockModal({ open: true, type: 'restock', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
-                                <button title="Withdraw" onClick={() => setStockModal({ open: true, type: 'withdraw', data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
+                                <button title="Restock" onClick={() => { setStaffMemberName(getDefaultStaffMemberName()); setStockModal({ open: true, type: 'restock', data: item }); }} className="w-8 h-8 flex items-center justify-center bg-[#EAF3DE] text-[#3B6D11] rounded-full hover:scale-110 transition-transform"><ArrowUpRight size={16} /></button>
+                                <button title="Withdraw" onClick={() => { setStaffMemberName(getDefaultStaffMemberName()); setStockModal({ open: true, type: 'withdraw', data: item }); }} className="w-8 h-8 flex items-center justify-center bg-[#FAEEDA] text-[#854F0B] rounded-full hover:scale-110 transition-transform"><ArrowDownLeft size={16} /></button>
                               </>
+                            )}
+                            {!item.is_folder && (
+                              <button type="button" title="See History" onClick={() => setHistoryItem(item)} className="w-8 h-8 flex items-center justify-center bg-[#EEF2FF] text-[#4338CA] rounded-full hover:scale-110 transition-transform"><History size={16} /></button>
                             )}
                             <button title="Edit Item" onClick={() => {
                               setItemForm({ 
@@ -491,6 +501,7 @@ export default function Laundry() {
                                 classification: item.classification || '',
                                 unit_price: item.unit_price != null ? item.unit_price : ''
                               });
+                              setStaffMemberName(getDefaultStaffMemberName());
                               setItemModal({ open: true, mode: 'edit', data: item });
                             }} className="w-8 h-8 flex items-center justify-center bg-gray-100 text-[#6B7280] rounded-full hover:scale-110 transition-transform"><Wrench size={16} /></button>
                             <button title="Delete" onClick={() => setDeleteModal({ open: true, data: item })} className="w-8 h-8 flex items-center justify-center bg-[#FCEBEB] text-[#A32D2D] rounded-full hover:scale-110 transition-transform"><Trash2 size={16} /></button>
@@ -714,6 +725,8 @@ export default function Laundry() {
               <input type="number" step="0.001" className="input-field h-14 text-center text-xl font-black" value={stockQty} onChange={e => setStockQty(e.target.value)} required min="0.001" autoFocus />
             </div>
 
+            <StaffMemberInput value={staffMemberName} onChange={event => setStaffMemberName(event.target.value)} />
+
             {stockModal.type === 'restock' && (
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black text-[#9CA3AF] uppercase tracking-widest ml-1">Unit Cost Price (KES) <span className="text-[9px] font-normal normal-case text-[#9CA3AF]">— optional</span></label>
@@ -757,6 +770,8 @@ export default function Laundry() {
           </button>
         </form>
       </Modal>
+
+      <StockHistoryModal isOpen={!!historyItem} item={historyItem} endpoint="/laundry/transactions" onClose={() => setHistoryItem(null)} />
 
       <Modal isOpen={itemModal.open} onClose={() => setItemModal({ ...itemModal, open: false })} title={itemModal.mode === 'add' ? 'Register Item' : 'Modify Item'}>
         <form onSubmit={handleSaveItem} className="space-y-6">
@@ -813,6 +828,7 @@ export default function Laundry() {
                   onQuantityChange={e => setItemForm({...itemForm, quantity: e.target.value})}
                   onOpenedQuantityChange={e => setItemForm({...itemForm, opened_quantity_remaining: e.target.value})}
                 />
+                <StaffMemberInput value={staffMemberName} onChange={event => setStaffMemberName(event.target.value)} />
 
 
 

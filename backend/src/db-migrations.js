@@ -208,17 +208,30 @@ async function runAutoMigrations() {
       if (transactionTable && await tableExists(transactionTable)) {
         await ensureDecimalColumn(transactionTable, 'quantity');
         await addColumnIfMissing(transactionTable, 'unit', 'VARCHAR(50) DEFAULT NULL');
+        await addColumnIfMissing(transactionTable, 'staff_member_name', 'VARCHAR(100) NULL');
         try {
           await pool.query(
             `UPDATE \`${transactionTable}\` t JOIN \`${itemTable}\` i ON i.id = t.item_id SET t.unit = i.unit WHERE t.unit IS NULL OR t.unit = ''`
           );
+          await pool.query(
+            `UPDATE \`${transactionTable}\` t JOIN users u ON u.id = t.action_by SET t.staff_member_name = COALESCE(NULLIF(u.display_name, ''), u.email) WHERE t.staff_member_name IS NULL OR t.staff_member_name = ''`
+          );
         } catch (err) {
-          console.error(`[AutoMigration ERROR] Failed to backfill ${transactionTable}.unit:`, err.message);
+          console.error(`[AutoMigration ERROR] Failed to backfill ${transactionTable} transaction details:`, err.message);
         }
       }
     }
     if (await tableExists('transactions')) {
       await ensureDecimalColumn('transactions', 'quantity');
+      await addColumnIfMissing('transactions', 'staff_member_name', 'VARCHAR(100) NULL');
+      await addColumnIfMissing('transactions', 'recorded_by_user_id', 'INT NULL');
+      try {
+        await pool.query(
+          "UPDATE transactions SET staff_member_name = person WHERE (staff_member_name IS NULL OR staff_member_name = '') AND item_source = 'general_supplies' AND person IS NOT NULL"
+        );
+      } catch (err) {
+        console.error('[AutoMigration ERROR] Failed to backfill generic transaction staff names:', err.message);
+      }
     }
     if (await tableExists('laundry_items')) {
       await addColumnIfMissing('laundry_items', 'notes', 'TEXT NULL');
