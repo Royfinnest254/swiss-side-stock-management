@@ -65,6 +65,7 @@ export default function Dashboard() {
   const [inventoryQuery, setInventoryQuery] = useState('');
   const [inventoryResults, setInventoryResults] = useState([]);
   const [searchingInventory, setSearchingInventory] = useState(false);
+  const [inventorySearchError, setInventorySearchError] = useState(false);
   const [data, setData] = useState({
     stock: { total: 0, low_stock: 0 },
     maintenance: { pending: 0 },
@@ -114,17 +115,22 @@ export default function Dashboard() {
     if (!query) {
       setInventoryResults([]);
       setSearchingInventory(false);
+      setInventorySearchError(false);
       return undefined;
     }
 
     let cancelled = false;
     setSearchingInventory(true);
+    setInventorySearchError(false);
     const timer = setTimeout(async () => {
       try {
         const results = await api.get(`/dashboard/inventory-search?q=${encodeURIComponent(query)}`);
         if (!cancelled) setInventoryResults(Array.isArray(results) ? results : []);
       } catch {
-        if (!cancelled) setInventoryResults([]);
+        if (!cancelled) {
+          setInventoryResults([]);
+          setInventorySearchError(true);
+        }
       } finally {
         if (!cancelled) setSearchingInventory(false);
       }
@@ -172,6 +178,8 @@ export default function Dashboard() {
           <div className="mt-3 border border-[#F3F4F6] rounded-xl overflow-hidden">
             {searchingInventory ? (
               <div className="p-5 text-sm text-[#6B7280] flex items-center gap-2"><Loader2 size={16} className="animate-spin text-[#A0604E]" />Searching inventory…</div>
+            ) : inventorySearchError ? (
+              <div className="p-5 text-sm text-[#B42318]">Inventory search failed. Please try again.</div>
             ) : inventoryResults.length > 0 ? (
               <div className="divide-y divide-[#F3F4F6] max-h-80 overflow-y-auto">
                 {inventoryResults.map(item => (
