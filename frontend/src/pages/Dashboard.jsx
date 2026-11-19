@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard, TrendingDown, Wrench, ClipboardList, ArrowUpRight, ArrowDownRight, Package, AlertTriangle, History, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react';
+import { LayoutDashboard, TrendingDown, Wrench, ClipboardList, ArrowUpRight, ArrowDownRight, Package, AlertTriangle, History, CheckCircle2, ChevronRight, Loader2, Search, X } from 'lucide-react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 
@@ -62,6 +62,9 @@ const DepartmentCard = ({ name, total, lowCount }) => {
 export default function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [inventoryQuery, setInventoryQuery] = useState('');
+  const [inventoryResults, setInventoryResults] = useState([]);
+  const [searchingInventory, setSearchingInventory] = useState(false);
   const [data, setData] = useState({
     stock: { total: 0, low_stock: 0 },
     maintenance: { pending: 0 },
@@ -106,6 +109,33 @@ export default function Dashboard() {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const query = inventoryQuery.trim();
+    if (!query) {
+      setInventoryResults([]);
+      setSearchingInventory(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setSearchingInventory(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await api.get(`/dashboard/inventory-search?q=${encodeURIComponent(query)}`);
+        if (!cancelled) setInventoryResults(Array.isArray(results) ? results : []);
+      } catch {
+        if (!cancelled) setInventoryResults([]);
+      } finally {
+        if (!cancelled) setSearchingInventory(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inventoryQuery]);
+
   const modules = [
     { name: 'Kitchen', key: 'kitchen' },
     { name: 'Spa', key: 'spa' },
@@ -117,6 +147,53 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-10 max-w-[1400px] mx-auto pb-10">
+      <section className="bg-white rounded-2xl border border-[#F3F4F6] shadow-sm p-5 md:p-6">
+        <div className="mb-4">
+          <h2 className="text-[11px] font-black uppercase tracking-[0.3em] text-[#9CA3AF]">Search Inventory</h2>
+          <p className="text-sm text-[#6B7280] mt-1">Find stock across every department.</p>
+        </div>
+        <div className="relative">
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+          <input
+            type="search"
+            value={inventoryQuery}
+            onChange={event => setInventoryQuery(event.target.value)}
+            placeholder="Search by item name…"
+            aria-label="Search all inventory by item name"
+            className="w-full h-12 pl-11 pr-11 rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] text-sm font-medium text-[#1A1A1A] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#A0604E]/20 focus:border-[#A0604E]"
+          />
+          {inventoryQuery && (
+            <button type="button" onClick={() => setInventoryQuery('')} aria-label="Clear inventory search" className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-[#9CA3AF] hover:text-[#1A1A1A]">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        {inventoryQuery.trim() && (
+          <div className="mt-3 border border-[#F3F4F6] rounded-xl overflow-hidden">
+            {searchingInventory ? (
+              <div className="p-5 text-sm text-[#6B7280] flex items-center gap-2"><Loader2 size={16} className="animate-spin text-[#A0604E]" />Searching inventory…</div>
+            ) : inventoryResults.length > 0 ? (
+              <div className="divide-y divide-[#F3F4F6] max-h-80 overflow-y-auto">
+                {inventoryResults.map(item => (
+                  <button key={`${item.module}-${item.id}`} type="button" onClick={() => navigate(`/${item.module.toLowerCase()}`)} className="w-full px-4 py-3 flex items-center justify-between gap-4 text-left hover:bg-[#F9FAFB] transition-colors">
+                    <span className="min-w-0">
+                      <span className="block font-bold text-sm text-[#1A1A1A] truncate">{item.name}</span>
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-[#A0604E] mt-1">{item.module}</span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="block font-black text-sm text-[#1A1A1A]">{item.quantity} <span className="text-xs font-bold text-[#9CA3AF]">{item.unit || 'Units'}</span></span>
+                      {Number(item.reorder_level) > 0 && Number(item.quantity) < Number(item.reorder_level) && <span className="text-[9px] font-black uppercase tracking-widest text-[#E24B4A]">Low stock</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-5 text-sm text-[#6B7280]">No inventory items found for “{inventoryQuery.trim()}”.</div>
+            )}
+          </div>
+        )}
+      </section>
+
       {/* KPI Section */}
       <section>
         <div className="flex items-center justify-between mb-6">

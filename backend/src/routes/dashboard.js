@@ -2,6 +2,39 @@ const router = require('express').Router();
 const pool = require('../db');
 const { requireAuth } = require('../middleware/auth');
 
+router.get('/inventory-search', requireAuth, async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (!query) return res.json([]);
+
+  try {
+    const searchTerm = `%${query}%`;
+    const [rows] = await pool.query(`
+      SELECT id, name, quantity, unit, reorder_level, module FROM (
+        SELECT id, name, quantity, unit, reorder_level, 'Kitchen' AS module, is_folder FROM kitchen_items WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'Spa' AS module, is_folder FROM spa_items WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'Shop' AS module, is_folder FROM shop_items WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'Supplies' AS module, is_folder FROM supplies_items WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'Laundry' AS module, is_folder FROM laundry_items WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'Gym' AS module, is_folder FROM gym_inventory WHERE is_active = 1
+        UNION ALL
+        SELECT id, name, quantity, unit, reorder_level, 'General Supplies' AS module, is_folder FROM general_supplies WHERE is_active = 1
+      ) inventory
+      WHERE is_folder = 0 AND name LIKE ?
+      ORDER BY name
+      LIMIT 50
+    `, [searchTerm]);
+    res.json(rows);
+  } catch (err) {
+    console.error('[Dashboard Inventory Search Error]', err);
+    res.status(500).json({ error: 'Could not search inventory.' });
+  }
+});
+
 router.get('/', requireAuth, async (req, res) => {
   try {
     const [stock] = await pool.query(`
