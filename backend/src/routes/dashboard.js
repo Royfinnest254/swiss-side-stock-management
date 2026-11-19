@@ -10,21 +10,35 @@ router.get('/inventory-search', requireAuth, async (req, res) => {
     const searchTerm = `%${query}%`;
     const [rows] = await pool.query(`
       SELECT id, name, quantity, unit, reorder_level, module FROM (
-        SELECT id, name, quantity, unit, reorder_level, 'Kitchen' AS module, is_folder FROM kitchen_items WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci AS name, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci AS unit, reorder_level,
+               'Kitchen' COLLATE utf8mb4_general_ci AS module, is_folder FROM kitchen_items WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'Spa' AS module, is_folder FROM spa_items WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'Spa' COLLATE utf8mb4_general_ci, is_folder FROM spa_items WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'Shop' AS module, is_folder FROM shop_items WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'Shop' COLLATE utf8mb4_general_ci, is_folder FROM shop_items WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'Supplies' AS module, is_folder FROM supplies_items WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'Supplies' COLLATE utf8mb4_general_ci, is_folder FROM supplies_items WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'Laundry' AS module, is_folder FROM laundry_items WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'Laundry' COLLATE utf8mb4_general_ci, is_folder FROM laundry_items WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'Gym' AS module, is_folder FROM gym_inventory WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'Gym' COLLATE utf8mb4_general_ci, is_folder FROM gym_inventory WHERE is_active = 1
         UNION ALL
-        SELECT id, name, quantity, unit, reorder_level, 'General Supplies' AS module, is_folder FROM general_supplies WHERE is_active = 1
+        SELECT id, CONVERT(name USING utf8mb4) COLLATE utf8mb4_general_ci, quantity,
+               CONVERT(unit USING utf8mb4) COLLATE utf8mb4_general_ci, reorder_level,
+               'General Supplies' COLLATE utf8mb4_general_ci, is_folder FROM general_supplies WHERE is_active = 1
       ) inventory
-      WHERE is_folder = 0 AND name LIKE ?
+      WHERE COALESCE(is_folder, 0) = 0 AND name LIKE ?
       ORDER BY name
       LIMIT 50
     `, [searchTerm]);
