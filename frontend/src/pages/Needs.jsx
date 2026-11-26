@@ -6,7 +6,7 @@ import DeleteConfirmModal from '../components/DeleteConfirmModal';
 import { ClipboardList, Plus, Search, Loader2, CheckCircle2, Clock, AlertCircle, ShoppingCart, ArrowRight, Trash2, Package, Wrench, HelpCircle, DollarSign, Eye, EyeOff, Filter, Folder, CheckCircle, Archive, Settings, ArrowLeft, ShoppingBag, ListChecks, Printer, Download, Edit, Calendar } from 'lucide-react';
 
 export default function Needs() {
-  const [activeTab, setActiveTab] = useState('requisitions'); // 'requisitions' or 'shopping-lists'
+  const [activeTab, setActiveTab] = useState('requisitions'); // requisitions, manual shopping, or generated reorder draft
 
   // Requisitions (Existing operational needs) states
   const [needs, setNeeds] = useState([]);
@@ -47,6 +47,11 @@ export default function Needs() {
   // Shopping Lists State
   const [lists, setLists] = useState([]);
   const [listsLoading, setListsLoading] = useState(false);
+  const [reorderLoading, setReorderLoading] = useState(false);
+  const [reorderRefreshing, setReorderRefreshing] = useState(false);
+  const [reorderCandidates, setReorderCandidates] = useState([]);
+  const [reorderList, setReorderList] = useState(null);
+  const [reorderAddForm, setReorderAddForm] = useState({ name: '', department: 'General', quantity: 1, unit: 'pcs', price_per_unit: 0, notes: '' });
   const [selectedList, setSelectedList] = useState(null);
   const [listItems, setListItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -100,6 +105,46 @@ export default function Needs() {
     }
   };
 
+  const fetchReorderDraft = async () => {
+    setReorderLoading(true);
+    try {
+      const data = await api.get('/reports/reorder-draft');
+      setReorderList(data.list || null);
+      setSelectedList(data.list || null);
+      setReorderCandidates(data.candidates || []);
+    } catch (err) { toast.error('Failed to load generated reorder draft'); }
+    finally { setReorderLoading(false); }
+  };
+
+  const refreshReorderDraft = async () => {
+    setReorderRefreshing(true);
+    try {
+      const data = await api.post('/reports/reorder-draft/refresh', {});
+      setReorderList(data.list || null);
+      setReorderCandidates(data.candidates || []);
+      if (data.list) setSelectedList(data.list);
+      toast.success('Reorder draft synchronized with current stock');
+    } catch (err) { toast.error(err.response?.data?.error || 'Could not synchronize reorder draft'); }
+    finally { setReorderRefreshing(false); }
+  };
+
+  const addReorderLine = async (e) => {
+    e.preventDefault();
+    try {
+      let list = reorderList;
+      if (!list) {
+        const data = await api.post('/reports/reorder-draft/refresh', {});
+        list = data.list;
+        setReorderList(list);
+      }
+      await api.post(`/reports/shopping-lists/${list.id}/items`, { ...reorderAddForm, suggested_quantity: reorderAddForm.quantity });
+      setReorderAddForm({ name: '', department: 'General', quantity: 1, unit: 'pcs', price_per_unit: 0, notes: '' });
+      const refreshed = await api.get('/reports/shopping-lists/' + list.id);
+      setReorderList(refreshed);
+      toast.success('Item added to reorder draft');
+    } catch (err) { toast.error('Could not add item to reorder draft'); }
+  };
+
   // Open Details of a Single Shopping List
   const selectList = async (list) => {
     setSelectedList(list);
@@ -107,6 +152,8 @@ export default function Needs() {
     try {
       const data = await api.get(`/reports/shopping-lists/${list.id}`);
       setListItems(data.items || []);
+      if (data.list_type === 'reorder') setReorderList(data);
+      setSelectedList(data);
     } catch (err) {
       toast.error('Failed to load list details');
     } finally {
@@ -553,7 +600,7 @@ export default function Needs() {
                 <Plus size={18} /> NEW REQUEST
               </button>
             </>
-          ) : (
+          ) : activeTab === 'shopping-lists' ? (
             selectedList ? (
               <button onClick={() => setSelectedList(null)} className="btn-primary h-12 px-6 bg-slate-100 hover:bg-slate-200 text-slate-800 font-black uppercase text-[11px] tracking-widest flex items-center gap-2">
                 <ArrowLeft size={16} /> BACK TO DIRECTORY
@@ -566,12 +613,17 @@ export default function Needs() {
                 <Plus size={18} /> CREATE NEW LIST
               </button>
             )
+          ) : (
+            <button onClick={refreshReorderDraft} disabled={reorderRefreshing} className="btn-primary h-12 px-6 shadow-premium disabled:opacity-60">
+              {reorderRefreshing ? <Loader2 size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
+              {reorderRefreshing ? 'SYNCING…' : 'SYNC LOW STOCK'}
+            </button>
           )}
         </div>
       </div>
 
       {/* Tab Selector sub-navigation */}
-      <div className="flex border-b border-[#F3F4F6] gap-8 no-print">
+      <div className="flex flex-wrap border-b border-[#F3F4F6] gap-5 md:gap-8 no-print">
         <button
           onClick={() => setActiveTab('requisitions')}
           className={`pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all relative ${
@@ -586,6 +638,7 @@ export default function Needs() {
         <button
           onClick={() => {
             setActiveTab('shopping-lists');
+            if (selectedList?.list_type === 'reorder') setSelectedList(null);
             fetchLists();
           }}
           className={`pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all relative ${
@@ -596,6 +649,16 @@ export default function Needs() {
           {activeTab === 'shopping-lists' && (
             <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#A0604E] animate-in slide-in-from-left duration-250" />
           )}
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('reorder-draft');
+            fetchReorderDraft();
+          }}
+          className={`pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all relative ${activeTab === 'reorder-draft' ? 'text-[#A0604E]' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          Reorder Draft
+          {activeTab === 'reorder-draft' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#A0604E] animate-in slide-in-from-left duration-250" />}
         </button>
       </div>
 
@@ -770,7 +833,60 @@ export default function Needs() {
         </div>
       )}
 
-      {/* ======================= TAB 2: SHOPPING LISTS (PROCUREMENT) ======================= */}
+      {/* ======================= GENERATED LOW-STOCK REORDER DRAFT ======================= */}
+      {activeTab === 'reorder-draft' && (
+        <div className="space-y-8 animate-in fade-in duration-300 print-area">
+          <div className="rounded-[28px] border border-[#E8DED9] bg-[#FFFCFA] p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-5">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#A0604E]">Separate from manual shopping lists</span>
+              <h2 className="mt-2 text-xl font-black text-[#1A1A1A]">Generated Reorder Draft</h2>
+              <p className="mt-2 max-w-2xl text-sm text-slate-600">Only active stock items with automatic reorder enabled appear here. Suggestions restore stock to each item’s target. Sync preserves your edited quantities.</p>
+              {reorderList?.last_synced_at && <p className="mt-2 text-xs text-slate-400">Last synced {new Date(reorderList.last_synced_at).toLocaleString()}</p>}
+            </div>
+            <button onClick={refreshReorderDraft} disabled={reorderRefreshing} className="btn-primary h-12 px-6 shadow-premium disabled:opacity-60 shrink-0">
+              {reorderRefreshing ? <Loader2 size={16} className="animate-spin" /> : <ShoppingCart size={16} />}
+              {reorderRefreshing ? 'SYNCING…' : 'SYNC INVENTORY'}
+            </button>
+          </div>
+          {reorderLoading ? <div className="py-16 flex justify-center"><Loader2 className="animate-spin text-[#A0604E]" size={30} /></div> : (
+            <>
+              {reorderCandidates.length === 0 && <div className="system-card p-6 text-sm text-slate-600">No eligible items are currently below their reorder minimum. Items must be marked as stocked and have automatic reorder enabled with a minimum and target.</div>}
+              <div className="system-card p-0 overflow-hidden shadow-sm">
+                <div className="p-5 border-b border-gray-100 flex justify-between items-center">
+                  <h3 className="text-sm font-black uppercase tracking-widest">Editable Draft Items</h3>
+                  <span className="text-xs font-bold text-slate-400">{reorderList?.items?.length || 0} lines</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left"><thead><tr><th className="px-5 py-3">Item</th><th className="px-5 py-3">Department</th><th className="px-5 py-3">Quantity</th><th className="px-5 py-3">Unit</th><th className="px-5 py-3">Reason / Notes</th><th className="px-5 py-3 text-right">Actions</th></tr></thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {(reorderList?.items || []).map(item => <tr key={item.id}>
+                        <td className="px-5 py-4 font-bold">{item.name}{item.is_manual ? <span className="ml-2 text-[9px] text-slate-400 uppercase">Manual</span> : null}</td>
+                        <td className="px-5 py-4 text-xs uppercase text-slate-500">{item.department}</td>
+                        <td className="px-5 py-4">{item.suggested_quantity}</td><td className="px-5 py-4">{item.unit}</td>
+                        <td className="px-5 py-4 text-xs text-slate-500">{item.notes || 'Added manually'}</td>
+                        <td className="px-5 py-4"><div className="flex justify-end gap-2">
+                          {!item.purchased && <><button onClick={() => triggerEditItem(item)} title="Edit line" className="h-8 w-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center"><Edit size={14} /></button><button onClick={() => setDeleteItemModal({ open: true, data: item })} title="Remove line" className="h-8 w-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center"><Trash2 size={14} /></button><button onClick={() => setPurchaseModal({ open: true, listId: reorderList.id, item })} title="Record purchase and restock" className="h-8 px-3 rounded-lg bg-green-50 text-green-700 text-[10px] font-black uppercase">Purchased</button></>}
+                          {item.purchased && <span className="text-[9px] font-black uppercase text-green-700">Restocked</span>}
+                        </div></td>
+                      </tr>)}
+                      {(!reorderList?.items || reorderList.items.length === 0) && <tr><td colSpan={6} className="py-10 text-center text-sm text-slate-400">Sync inventory to create the draft, or add a manual line below.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <form onSubmit={addReorderLine} className="system-card p-6 grid gap-3 md:grid-cols-6 items-end">
+                <div className="md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400">Add another item</label><input className="input-field mt-1" required placeholder="Item name" value={reorderAddForm.name} onChange={e => setReorderAddForm({ ...reorderAddForm, name: e.target.value })} /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400">Department</label><input className="input-field mt-1" value={reorderAddForm.department} onChange={e => setReorderAddForm({ ...reorderAddForm, department: e.target.value })} /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400">Quantity</label><input type="number" step="0.001" min="0.001" className="input-field mt-1" value={reorderAddForm.quantity} onChange={e => setReorderAddForm({ ...reorderAddForm, quantity: e.target.value })} /></div>
+                <div><label className="text-[10px] font-black uppercase text-slate-400">Unit</label><input className="input-field mt-1" value={reorderAddForm.unit} onChange={e => setReorderAddForm({ ...reorderAddForm, unit: e.target.value })} /></div>
+                <button className="btn-primary h-11"><Plus size={15} /> ADD</button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ======================= TAB 2: MANUAL SHOPPING LISTS ======================= */}
       {activeTab === 'shopping-lists' && (
         <div className="space-y-10 animate-in fade-in duration-300 print-area">
           {listsLoading ? (

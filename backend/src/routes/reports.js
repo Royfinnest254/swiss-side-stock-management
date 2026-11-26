@@ -88,7 +88,7 @@ async function getActivityRows(range) {
 function parseListQuantity(value) {
   if (value === undefined || value === null || value === '') return null;
   const text = String(value).trim();
-  if (!/^\d{1,8}(?:\.\d{1,2})?$/.test(text)) return null;
+  if (!/^\d{1,8}(?:\.\d{1,3})?$/.test(text)) return null;
   const quantity = Number(text);
   return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
 }
@@ -98,6 +98,61 @@ function escapeHtml(value) {
 }
 
 router.use(requireAuth);
+
+const reorderSources = [
+  ['kitchen_items', 'Kitchen'], ['spa_items', 'Spa'], ['shop_items', 'Shop'],
+  ['supplies_items', 'Supplies'], ['laundry_items', 'Laundry'],
+  ['gym_inventory', 'Gym'], ['general_supplies', 'General Supplies']
+];
+
+async function getReorderCandidates(queryable = pool) {
+  const selects = reorderSources.map(([table, module]) => `
+    SELECT i.id, i.name COLLATE utf8mb4_unicode_ci AS name, i.quantity,
+      i.unit, i.unit_price, i.reorder_level, i.reorder_target,
+      '${module}' COLLATE utf8mb4_unicode_ci AS department,
+      '${table}' AS source_table
+    FROM \`${table}\` i
+    WHERE i.is_active = 1 AND i.is_folder = 0 AND i.item_type = 'stocked'
+      AND i.auto_reorder_enabled = 1 AND i.reorder_level > 0
+      AND i.reorder_target IS NOT NULL AND i.reorder_target > i.reorder_level
+      AND i.quantity < i.reorder_level
+  `).join(' UNION ALL ');
+  const [rows] = await queryable.query(`SELECT *, (reorder_target - quantity) AS suggested_quantity FROM (${selects}) AS eligible ORDER BY department, name`);
+  return rows;
+}
+
+async function getReorderList(listId, queryable = pool) {
+  const [lists] = await queryable.query('SELECT * FROM shopping_lists WHERE id = ? AND list_type = \'reorder\'', [listId]);
+  if (!lists.length) return null;
+  const [items] = await queryable.query('SELECT * FROM shopping_list_items WHERE list_id = ? ORDER BY department, name', [listId]);
+  return { ...lists[0], items };
+}
+
+router.put('/inventory-settings/:sourceTable/:itemId', async (req, res) => {
+  const tables = new Set(reorderSources.map(([table]) => table));
+  const { sourceTable, itemId } = req.params;
+  const { item_type = 'stocked', auto_reorder_enabled = false, reorder_level = 0, reorder_target = null } = req.body;
+  const enabled = auto_reorder_enabled === true || auto_reorder_enabled === 1 || auto_reorder_enabled === '1';
+  const minimum = Number(reorder_level);
+  const target = reorder_target == null || reorder_target === '' ? null : Number(reorder_target);
+  if (!tables.has(sourceTable)) return res.status(400).json({ error: 'Unknown inventory module.' });
+  if (!['stocked', 'tracked', 'purchase_only'].includes(item_type)) return res.status(400).json({ error: 'Choose a valid item behavior.' });
+  if (!Number.isInteger(Number(itemId)) || Number(itemId) < 1) return res.status(400).json({ error: 'Invalid inventory item.' });
+  if (enabled && (item_type !== 'stocked' || !Number.isFinite(minimum) || minimum <= 0 || !Number.isFinite(target) || target <= minimum)) {
+    return res.status(400).json({ error: 'Automatic reorder needs a positive minimum and a target greater than that minimum.' });
+  }
+  try {
+    const [result] = await pool.query(
+      `UPDATE \`${sourceTable}\` SET item_type = ?, auto_reorder_enabled = ?, reorder_level = ?, reorder_target = ? WHERE id = ? AND is_active = 1 AND is_folder = 0`,
+      [item_type, enabled ? 1 : 0, Number.isFinite(minimum) ? minimum : 0, target, Number(itemId)]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'Active inventory item not found.' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Inventory Settings Error]', err);
+    res.status(500).json({ error: 'Could not save inventory behavior.' });
+  }
+});
 
 // GET /api/reports/statement-download — Public/Secure printable statement PDF download
 router.get('/statement-download', async (req, res) => {
@@ -936,13 +991,83 @@ router.post('/email', async (req, res) => {
 });
 
 // =========================================================================
+// REORDER DRAFT — kept separate from manually created shopping lists
+// =========================================================================
+router.get('/reorder-draft', async (req, res) => {
+  try {
+    const [lists] = await pool.query("SELECT id FROM shopping_lists WHERE list_type = 'reorder' AND status IN ('Draft', 'Active') ORDER BY id DESC LIMIT 1");
+    if (!lists.length) return res.json({ list: null, candidates: await getReorderCandidates() });
+    res.json({ list: await getReorderList(lists[0].id), candidates: await getReorderCandidates() });
+  } catch (err) {
+    console.error('[Reorder Draft Load Error]', err);
+    res.status(500).json({ error: 'Could not load the reorder draft.' });
+  }
+});
+
+router.post('/reorder-draft/refresh', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const candidates = await getReorderCandidates(connection);
+    const [lists] = await connection.query("SELECT id FROM shopping_lists WHERE list_type = 'reorder' AND status IN ('Draft', 'Active') ORDER BY id DESC LIMIT 1 FOR UPDATE");
+    let listId = lists[0]?.id;
+    if (!listId) {
+      const [created] = await connection.query("INSERT INTO shopping_lists (name, status, list_type) VALUES ('Generated Reorder Draft', 'Draft', 'reorder')");
+      listId = created.insertId;
+    }
+
+    let added = 0;
+    const [existing] = await connection.query('SELECT * FROM shopping_list_items WHERE list_id = ? AND is_manual = 0 AND purchased = 0', [listId]);
+    for (const line of existing) {
+      const key = `${line.source_table}:${line.inventory_item_id}`;
+      const candidate = candidates.find(row => `${row.source_table}:${row.id}` === key);
+      if (!candidate && !line.is_edited) {
+        await connection.query('DELETE FROM shopping_list_items WHERE id = ?', [line.id]);
+      } else if (candidate && !line.is_edited) {
+        await connection.query(
+          'UPDATE shopping_list_items SET suggested_quantity = ?, unit = ?, price_per_unit = ?, total_cost = ? WHERE id = ?',
+          [candidate.suggested_quantity, candidate.unit, candidate.unit_price || 0, Number(candidate.suggested_quantity) * Number(candidate.unit_price || 0), line.id]
+        );
+      }
+    }
+
+    for (const candidate of candidates) {
+      const [found] = await connection.query(
+        'SELECT id FROM shopping_list_items WHERE list_id = ? AND source_table = ? AND inventory_item_id = ? AND purchased = 0 LIMIT 1',
+        [listId, candidate.source_table, candidate.id]
+      );
+      if (found.length) continue;
+      await connection.query(
+        `INSERT INTO shopping_list_items
+          (list_id, name, department, suggested_quantity, unit, price_per_unit, total_cost, is_manual, notes, module, inventory_item_id, source_table, is_edited)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0)`,
+        [listId, candidate.name, candidate.department, candidate.suggested_quantity, candidate.unit, candidate.unit_price || 0,
+          Number(candidate.suggested_quantity) * Number(candidate.unit_price || 0),
+          `Below minimum (${candidate.reorder_level} ${candidate.unit || ''}); suggested to restore to ${candidate.reorder_target} ${candidate.unit || ''}.`,
+          candidate.department, candidate.id, candidate.source_table]
+      );
+      added += 1;
+    }
+    await connection.query('UPDATE shopping_lists SET last_synced_at = NOW() WHERE id = ?', [listId]);
+    await connection.commit();
+    res.json({ success: true, list: await getReorderList(listId), candidates, added });
+  } catch (err) {
+    await connection.rollback();
+    console.error('[Reorder Draft Refresh Error]', err);
+    res.status(500).json({ error: 'Could not refresh the reorder draft.' });
+  } finally {
+    connection.release();
+  }
+});
+
+// =========================================================================
 // SECTION 13 — MANUAL SHOPPING LISTS REST ROUTING
 // =========================================================================
 
 // GET /api/reports/shopping-lists — List all shopping lists
 router.get('/shopping-lists', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM shopping_lists ORDER BY created_at DESC');
+    const [rows] = await pool.query("SELECT * FROM shopping_lists WHERE list_type = 'manual' ORDER BY created_at DESC");
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -955,7 +1080,7 @@ router.post('/shopping-lists', async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'Shopping list name is required.' });
   try {
-    const [result] = await pool.query('INSERT INTO shopping_lists (name, status) VALUES (?, "Draft")', [name]);
+    const [result] = await pool.query('INSERT INTO shopping_lists (name, status, list_type) VALUES (?, "Draft", "manual")', [name]);
     res.status(201).json({ id: result.insertId, name, status: 'Draft' });
   } catch (err) {
     console.error(err);
@@ -1061,7 +1186,7 @@ router.put('/shopping-lists/:id/items/:itemId', async (req, res) => {
   try {
     await pool.query(
       `UPDATE shopping_list_items 
-       SET name = ?, department = ?, suggested_quantity = ?, unit = ?, price_per_unit = ?, total_cost = ?, notes = ?
+       SET name = ?, department = ?, suggested_quantity = ?, unit = ?, price_per_unit = ?, total_cost = ?, notes = ?, is_edited = 1
        WHERE list_id = ? AND id = ?`,
       [name, department || 'General', qty, unit || 'pcs', price, total, notes || null, req.params.id, req.params.itemId]
     );
@@ -1136,16 +1261,20 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
       shop: { items: 'shop_items', trans: 'shop_transactions', key: 'item_id' },
       gym: { items: 'gym_inventory', trans: 'gym_transactions', key: 'item_id' },
       supplies: { items: 'supplies_items', trans: 'supplies_transactions', key: 'item_id' },
-      laundry: { items: 'laundry_items', trans: 'laundry_transactions', key: 'item_id' }
+      laundry: { items: 'laundry_items', trans: 'laundry_transactions', key: 'item_id' },
+      'general supplies': { items: 'general_supplies', trans: null, key: 'item_id' }
     };
 
-    const target = tableMapping[dept];
+    const target = item.source_table && reorderSources.some(([table]) => table === item.source_table)
+      ? { items: item.source_table, trans: item.source_table === 'general_supplies' ? null : `${item.source_table.replace('_items', '').replace('gym_inventory', 'gym')}_transactions`, key: 'item_id' }
+      : tableMapping[dept];
     if (target) {
-      // Find matching item by lowercase name
-      const [invItems] = await connection.query(
-        `SELECT id FROM \`${target.items}\` WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND is_active = 1 LIMIT 1`,
-        [item.name]
-      );
+      const [invItems] = item.inventory_item_id && item.source_table
+        ? await connection.query(`SELECT id, unit FROM \`${target.items}\` WHERE id = ? AND is_active = 1 LIMIT 1`, [item.inventory_item_id])
+        : await connection.query(
+          `SELECT id, unit FROM \`${target.items}\` WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND is_active = 1 LIMIT 1`,
+          [item.name]
+        );
       
       if (invItems.length) {
         const invItemId = invItems[0].id;
@@ -1155,11 +1284,19 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
           [suggestedQty, invItemId]
         );
         // Log transaction record
-        await connection.query(
-          `INSERT INTO \`${target.trans}\` (${target.key}, action, quantity, transaction_date, reason, action_by)
-           VALUES (?, 'restock', ?, COALESCE(?, CURDATE()), ?, ?)`,
-          [invItemId, suggestedQty, transaction_date || null, `Automated procurement restock: List #${req.params.id}`, req.user.id]
-        );
+        if (target.trans) {
+          await connection.query(
+            `INSERT INTO \`${target.trans}\` (${target.key}, action, quantity, unit, transaction_date, reason, action_by)
+             VALUES (?, 'restock', ?, ?, COALESCE(?, CURDATE()), ?, ?)`,
+            [invItemId, suggestedQty, invItems[0].unit || item.unit, transaction_date || null, `Automated procurement restock: List #${req.params.id}`, req.user.id]
+          );
+        } else {
+          await connection.query(
+            `INSERT INTO transactions (item_id, item_source, item_name, type, quantity, unit, person, notes, created_at, recorded_by_user_id)
+             SELECT ?, 'general_supplies', name, 'RESTOCK', ?, unit, ?, ?, COALESCE(?, NOW()), ? FROM general_supplies WHERE id = ?`,
+            [invItemId, suggestedQty, req.user.display_name || req.user.email, `Automated procurement restock: List #${req.params.id}`, transaction_date || null, req.user.id, invItemId]
+          ).catch(err => console.error('[General Supplies Procurement Log Error]', err.message));
+        }
       } else {
         // If an item is missing, log a restock_failed warning to audit_logs
         await connection.query(
@@ -1184,7 +1321,7 @@ router.patch('/shopping-lists/:id/items/:itemId/purchase', async (req, res) => {
       );
     } else {
       await connection.query(
-        'UPDATE shopping_lists SET status = "Active", completed_at = NULL WHERE id = ?',
+        'UPDATE shopping_lists SET status = "Draft", completed_at = NULL WHERE id = ?',
         [req.params.id]
       );
     }

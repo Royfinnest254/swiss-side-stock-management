@@ -3,6 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import InventoryQuantityFields from '../components/InventoryQuantityFields';
+import InventoryBehaviorFields from '../components/InventoryBehaviorFields';
 import StaffMemberInput, { getDefaultStaffMemberName } from '../components/StaffMemberInput';
 import StockHistoryModal from '../components/StockHistoryModal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
@@ -24,6 +25,7 @@ export default function Kitchen() {
   const [toDate, setToDate] = useState('');
 
   const [itemModal, setItemModal] = useState({ open: false, mode: 'add', data: null });
+  const [inventoryBehavior, setInventoryBehavior] = useState({ item_type: 'stocked', auto_reorder_enabled: false, reorder_target: '' });
   const [stockModal, setStockModal] = useState({ open: false, type: 'restock', data: null });
   const [historyItem, setHistoryItem] = useState(null);
   const [staffMemberName, setStaffMemberName] = useState(getDefaultStaffMemberName);
@@ -61,6 +63,12 @@ export default function Kitchen() {
     fetchData(); 
   }, [activeTab]);
 
+  useEffect(() => {
+    if (!itemModal.open) return;
+    const item = itemModal.data || {};
+    setInventoryBehavior({ item_type: item.item_type || 'stocked', auto_reorder_enabled: Number(item.auto_reorder_enabled) === 1, reorder_target: item.reorder_target ?? '' });
+  }, [itemModal.open, itemModal.data]);
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -95,10 +103,10 @@ export default function Kitchen() {
     const payload = {
       name: itemForm.name,
       staff_member_name: staffMemberName.trim(),
-      quantity: itemForm.is_folder ? 0 : itemForm.quantity,
-      opened_quantity_remaining: itemForm.is_folder || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
+      quantity: itemForm.is_folder || inventoryBehavior.item_type === 'purchase_only' ? 0 : itemForm.quantity,
+      opened_quantity_remaining: itemForm.is_folder || inventoryBehavior.item_type === 'purchase_only' || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
       unit: itemForm.is_folder ? 'folder' : itemForm.unit,
-      reorder_level: itemForm.is_folder ? 0 : itemForm.reorder_level,
+      reorder_level: itemForm.is_folder || inventoryBehavior.item_type !== 'stocked' ? 0 : itemForm.reorder_level,
       category: itemForm.is_folder ? 'Consumables' : itemForm.category,
       notes: itemForm.notes,
       is_folder: itemForm.is_folder ? 1 : 0,
@@ -107,13 +115,16 @@ export default function Kitchen() {
       unit_price: itemForm.is_folder ? null : (itemForm.unit_price !== '' ? parseFloat(itemForm.unit_price) : null)
     };
     try {
+      let savedItemId = itemModal.data?.id;
       if (itemModal.mode === 'add') {
-        await api.post('/kitchen/items', payload);
+        const response = await api.post('/kitchen/items', payload);
+        savedItemId = response.id || response.insertId;
         toast.success('Item added to records');
       } else {
         await api.put(`/kitchen/items/${itemModal.data.id}`, payload);
         toast.success('Item records updated');
       }
+      if (!itemForm.is_folder && savedItemId) await api.put(`/reports/inventory-settings/kitchen_items/${savedItemId}`, { ...inventoryBehavior, reorder_level: payload.reorder_level });
       setItemModal({ open: false, mode: 'add', data: null });
       fetchData();
     } catch (err) { 
@@ -723,6 +734,7 @@ export default function Kitchen() {
 
       <Modal isOpen={itemModal.open} onClose={() => setItemModal({ ...itemModal, open: false })} title={itemModal.mode === 'add' ? 'Register Item / Folder' : 'Modify Item'}>
         <form onSubmit={handleSaveItem} className="space-y-6">
+          <InventoryBehaviorFields value={inventoryBehavior} onChange={setInventoryBehavior} reorderLevel={itemForm.reorder_level} onReorderLevelChange={value => setItemForm(prev => ({ ...prev, reorder_level: value }))} disabled={itemForm.is_folder} />
           <div className="grid grid-cols-2 gap-6">
             <div className="space-y-1.5 col-span-2">
               <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Item Name</label>
@@ -780,21 +792,16 @@ export default function Kitchen() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
                   <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="kg, liters, pcs" />
                 </div>
-                <InventoryQuantityFields
+                {inventoryBehavior.item_type !== 'purchase_only' && <InventoryQuantityFields
                   quantity={itemForm.quantity}
                   openedQuantityRemaining={itemForm.opened_quantity_remaining}
                   unit={itemForm.unit}
                   onQuantityChange={e => setItemForm({...itemForm, quantity: e.target.value})}
                   onOpenedQuantityChange={e => setItemForm({...itemForm, opened_quantity_remaining: e.target.value})}
-                />
+                />}
                 <StaffMemberInput value={staffMemberName} onChange={event => setStaffMemberName(event.target.value)} />
 
 
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
-                  <input type="number" step="any" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
-                </div>
 
                 <div className="space-y-1.5 col-span-2">
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit Cost Price (KES) <span className="text-[9px] font-normal normal-case text-[#9CA3AF]">— optional</span></label>
