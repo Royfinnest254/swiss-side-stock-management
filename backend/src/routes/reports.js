@@ -107,10 +107,13 @@ const reorderSources = [
 
 async function getReorderCandidates(queryable = pool) {
   const selects = reorderSources.map(([table, module]) => `
-    SELECT i.id, i.name COLLATE utf8mb4_unicode_ci AS name, i.quantity,
-      i.unit, i.unit_price, i.reorder_level, i.reorder_target,
-      '${module}' COLLATE utf8mb4_unicode_ci AS department,
-      '${table}' AS source_table
+    SELECT i.id,
+      CONVERT(i.name USING utf8mb4) COLLATE utf8mb4_unicode_ci AS name,
+      i.quantity,
+      CONVERT(i.unit USING utf8mb4) COLLATE utf8mb4_unicode_ci AS unit,
+      i.unit_price, i.reorder_level, i.reorder_target,
+      CONVERT('${module}' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS department,
+      CONVERT('${table}' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS source_table
     FROM \`${table}\` i
     WHERE i.is_active = 1 AND i.is_folder = 0 AND i.item_type = 'stocked'
       AND i.auto_reorder_enabled = 1 AND i.reorder_level > 0
