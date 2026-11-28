@@ -14,17 +14,11 @@
   },
   "dependencies": {
     "axios": "^1.15.2",
-    "bcryptjs": "^2.4.3",
-    "html2canvas": "^1.4.1",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.4",
     "lucide-react": "^1.8.0",
-    "node-cache": "^5.1.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hot-toast": "^2.6.0",
-    "react-router-dom": "^7.14.1",
-    "recharts": "^3.8.1"
+    "react-router-dom": "^7.14.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -38,7 +32,6 @@
     "globals": "^17.4.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.19",
-    "vite": "^8.0.4",
-    "vite-plugin-pwa": "^0.19.8"
+    "vite": "^8.0.4"
   }
 }
