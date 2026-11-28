@@ -341,6 +341,9 @@ async function runAutoMigrations() {
     await addColumnIfMissing('shopping_list_items', 'inventory_item_id', 'INT DEFAULT NULL');
     await addColumnIfMissing('shopping_list_items', 'source_table', 'VARCHAR(50) DEFAULT NULL');
     await addColumnIfMissing('shopping_list_items', 'is_edited', 'TINYINT(1) NOT NULL DEFAULT 0');
+    if (await tableExists('shopping_list_items')) {
+      await ensureDecimalColumn('shopping_list_items', 'suggested_quantity');
+    }
 
     console.log('[AutoMigration] Schema health alignment finished successfully.');
   } catch (err) {
