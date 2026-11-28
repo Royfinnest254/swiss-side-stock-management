@@ -3,6 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import Modal from '../components/Modal';
 import InventoryQuantityFields from '../components/InventoryQuantityFields';
+import InventoryBehaviorFields from '../components/InventoryBehaviorFields';
 import StaffMemberInput, { getDefaultStaffMemberName } from '../components/StaffMemberInput';
 import StockHistoryModal from '../components/StockHistoryModal';
 import DeleteConfirmModal from '../components/DeleteConfirmModal';
@@ -17,6 +18,7 @@ export default function GeneralSupplies() {
   const [search, setSearch] = useState('');
 
   const [itemModal, setItemModal] = useState({ open: false, mode: 'add', data: null });
+  const [inventoryBehavior, setInventoryBehavior] = useState({ item_type: 'stocked', auto_reorder_enabled: false, reorder_target: '' });
   const [isBulkMaintenanceModalOpen, setIsBulkMaintenanceModalOpen] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
   const [bulkMaintenanceData, setBulkMaintenanceData] = useState({ description: '', technician_name: '', status: 'pending', resolved_at: new Date().toISOString().split('T')[0] });
@@ -33,6 +35,11 @@ export default function GeneralSupplies() {
   const [restockUnitPrice, setRestockUnitPrice] = useState('');
 
   useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    if (!itemModal.open) return;
+    const item = itemModal.data || {};
+    setInventoryBehavior({ item_type: item.item_type || 'stocked', auto_reorder_enabled: Number(item.auto_reorder_enabled) === 1, reorder_target: item.reorder_target ?? '' });
+  }, [itemModal.open, itemModal.data]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -72,10 +79,10 @@ export default function GeneralSupplies() {
     const payload = {
       name: itemForm.name,
       staff_member_name: staffMemberName.trim(),
-      quantity: itemForm.is_folder ? 0 : itemForm.quantity,
-      opened_quantity_remaining: itemForm.is_folder || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
+      quantity: itemForm.is_folder || inventoryBehavior.item_type === 'purchase_only' ? 0 : itemForm.quantity,
+      opened_quantity_remaining: itemForm.is_folder || inventoryBehavior.item_type === 'purchase_only' || itemForm.opened_quantity_remaining === '' || itemForm.opened_quantity_remaining == null ? null : Number(itemForm.opened_quantity_remaining),
       unit: itemForm.is_folder ? 'folder' : itemForm.unit,
-      reorder_level: itemForm.is_folder ? 0 : itemForm.reorder_level,
+      reorder_level: itemForm.is_folder || inventoryBehavior.item_type !== 'stocked' ? 0 : itemForm.reorder_level,
       notes: itemForm.notes || null,
       category: itemForm.category || 'Other',
       is_folder: itemForm.is_folder ? 1 : 0,
@@ -85,9 +92,11 @@ export default function GeneralSupplies() {
     };
     try {
       if (itemModal.mode === 'add') {
-        await api.post('/general-supplies', payload);
+        const response = await api.post('/general-supplies', payload);
+        if (!itemForm.is_folder && (response.id || response.insertId)) await api.put(`/reports/inventory-settings/general_supplies/${response.id || response.insertId}`, { ...inventoryBehavior, reorder_level: payload.reorder_level });
       } else {
         await api.put(`/general-supplies/${itemModal.data.id}`, payload);
+        if (!itemForm.is_folder) await api.put(`/reports/inventory-settings/general_supplies/${itemModal.data.id}`, { ...inventoryBehavior, reorder_level: payload.reorder_level });
       }
       toast.success('Registry updated');
       setItemModal({ open: false, mode: 'add', data: null });
@@ -393,6 +402,7 @@ export default function GeneralSupplies() {
 
       <Modal isOpen={itemModal.open} onClose={() => setItemModal({ ...itemModal, open: false })} title={itemModal.mode === 'add' ? 'Register Item' : 'Modify Item'}>
         <form onSubmit={handleSaveItem} className="space-y-6">
+          <InventoryBehaviorFields value={inventoryBehavior} onChange={setInventoryBehavior} reorderLevel={itemForm.reorder_level} onReorderLevelChange={value => setItemForm(prev => ({ ...prev, reorder_level: value }))} disabled={itemForm.is_folder} />
           {itemModal.mode === 'add' && (
             <div className="flex gap-4 p-1 bg-gray-100 rounded-xl mb-4">
               <button type="button" onClick={() => setItemForm({...itemForm, is_folder: false})} className={`flex-1 py-2 text-xs font-bold rounded-lg ${!itemForm.is_folder ? 'bg-white shadow text-[#A0604E]' : 'text-gray-500'}`}>Single Item</button>
@@ -451,20 +461,16 @@ export default function GeneralSupplies() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Unit</label>
                   <input className="input-field" value={itemForm.unit} onChange={e => setItemForm({...itemForm, unit: e.target.value})} required placeholder="pcs, liters, boxes" />
                 </div>
-                <InventoryQuantityFields
+                {inventoryBehavior.item_type !== 'purchase_only' && <InventoryQuantityFields
                   quantity={itemForm.quantity}
                   openedQuantityRemaining={itemForm.opened_quantity_remaining}
                   unit={itemForm.unit}
                   onQuantityChange={e => setItemForm({...itemForm, quantity: e.target.value})}
                   onOpenedQuantityChange={e => setItemForm({...itemForm, opened_quantity_remaining: e.target.value})}
-                />
+                />}
                 <StaffMemberInput value={staffMemberName} onChange={event => setStaffMemberName(event.target.value)} />
 
 
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-[#9CA3AF] ml-1">Reorder Level</label>
-                  <input type="number" className="input-field" value={itemForm.reorder_level} onChange={e => setItemForm({...itemForm, reorder_level: parseFloat(e.target.value)})} required />
-                </div>
               </div>
 
               <div className="space-y-1.5">

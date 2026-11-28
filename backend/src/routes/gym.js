@@ -36,7 +36,7 @@ router.post('/inventory', async (req, res) => {
         [result.insertId, stockQuantity, unit || 'pcs', req.user.id, resolveStaffMemberName(req)]
       );
     }
-    res.status(201).json({ success: true });
+    res.status(201).json({ success: true, id: result.insertId });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Server error.' });

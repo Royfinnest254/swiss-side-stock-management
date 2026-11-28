@@ -199,6 +199,13 @@ async function runAutoMigrations() {
       ['supplies_items', 'supplies_transactions'],
       ['general_supplies', null],
     ];
+    for (const [itemTable] of quantityTables) {
+      if (await tableExists(itemTable)) {
+        await addColumnIfMissing(itemTable, 'item_type', "VARCHAR(30) NOT NULL DEFAULT 'stocked'");
+        await addColumnIfMissing(itemTable, 'auto_reorder_enabled', 'TINYINT(1) NOT NULL DEFAULT 0');
+        await addColumnIfMissing(itemTable, 'reorder_target', 'DECIMAL(12,3) NULL DEFAULT NULL');
+      }
+    }
     for (const [itemTable, transactionTable] of quantityTables) {
       if (await tableExists(itemTable)) {
         await addColumnIfMissing(itemTable, 'opened_quantity_remaining', 'DECIMAL(12,3) NULL DEFAULT NULL');
@@ -286,6 +293,8 @@ async function runAutoMigrations() {
     } else {
       await addColumnIfMissing('shopping_lists', 'completed_at', 'DATETIME DEFAULT NULL');
     }
+    await addColumnIfMissing('shopping_lists', 'list_type', "VARCHAR(30) NOT NULL DEFAULT 'manual'");
+    await addColumnIfMissing('shopping_lists', 'last_synced_at', 'DATETIME DEFAULT NULL');
 
     // 5. Create and align shopping_list_items table
     if (!(await tableExists('shopping_list_items'))) {
@@ -329,6 +338,9 @@ async function runAutoMigrations() {
       await addColumnIfMissing('shopping_list_items', 'actual_price_paid', 'DECIMAL(10,2) DEFAULT NULL');
       await addColumnIfMissing('shopping_list_items', 'module', 'VARCHAR(50) DEFAULT NULL');
     }
+    await addColumnIfMissing('shopping_list_items', 'inventory_item_id', 'INT DEFAULT NULL');
+    await addColumnIfMissing('shopping_list_items', 'source_table', 'VARCHAR(50) DEFAULT NULL');
+    await addColumnIfMissing('shopping_list_items', 'is_edited', 'TINYINT(1) NOT NULL DEFAULT 0');
 
     console.log('[AutoMigration] Schema health alignment finished successfully.');
   } catch (err) {
